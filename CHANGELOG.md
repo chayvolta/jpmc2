@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## [1.1.0] — 2026-08-25
+
+### Integración municipal
+- Join exacto de 393 conflictos con 2,478 municipios mediante `CVEGEO`
+- Cobertura de 252 municipios afectados y 412 asignaciones territoriales
+- Validación estricta de claves faltantes y `CASE_ID` duplicados
+- Nuevo mapa coroplético, búsqueda, ficha, ranking y estadísticas municipales
+- Resumen y URL principal disponibles desde cada registro vinculado
+- Scripts reproducibles para importar conflictos y regenerar el GeoJSON
+- Documentación de arquitectura, modelo de datos y regla multimunicipal
+
 ## [1.0.0] — 2026-07-14
 
 ### Inicial

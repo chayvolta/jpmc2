@@ -45,15 +45,18 @@ function KPICard({ icon, label, value, sub, accentColor = '#3b82f6', id }: KPICa
 }
 
 export default function StatsOverview() {
-  const { estados } = useConflictStore();
+  const { municipios, conflictos, metadata } = useConflictStore();
 
-  const stats = useMemo(() => calcularEstadisticas(estados), [estados]);
+  const stats = useMemo(
+    () => calcularEstadisticas(municipios, conflictos.length),
+    [conflictos.length, municipios]
+  );
 
-  if (estados.length === 0) {
+  if (municipios.length === 0) {
     return (
       <div className="grid grid-cols-2 gap-2">
-        {[1, 2, 3, 4].map((i) => (
-          <div key={i} className="card rounded-xl p-4 animate-pulse">
+        {[1, 2, 3, 4].map((index) => (
+          <div key={index} className="card rounded-xl p-4 animate-pulse">
             <div className="h-3 bg-white/10 rounded mb-2 w-3/4" />
             <div className="h-6 bg-white/10 rounded w-1/2" />
           </div>
@@ -70,32 +73,32 @@ export default function StatsOverview() {
         id="kpi-total-conflictos"
         icon={<AlertTriangle size={16} />}
         label="Total conflictos"
-        value={formatNumber(stats.total_conflictos)}
-        sub="2017 – 2026"
+        value={formatNumber(stats.totalConflictos)}
+        sub="casos únicos auditados"
         accentColor="#f59e0b"
       />
       <KPICard
-        id="kpi-estados-afectados"
+        id="kpi-municipios-afectados"
         icon={<Map size={16} />}
-        label="Estados"
-        value={`${stats.estados_afectados}`}
-        sub={`de 32 con conflictos`}
+        label="Municipios"
+        value={formatNumber(stats.municipiosAfectados)}
+        sub={`de ${formatNumber(municipios.length)} con conflictos`}
         accentColor="#3b82f6"
       />
       <KPICard
-        id="kpi-promedio"
+        id="kpi-asignaciones"
         icon={<BarChart2 size={16} />}
-        label="Promedio"
-        value={formatNumber(stats.promedio)}
-        sub="por estado"
+        label="Asignaciones"
+        value={formatNumber(metadata?.municipalAssignments ?? stats.asignacionesMunicipales)}
+        sub="vínculos territoriales"
         accentColor="#8b5cf6"
       />
       <KPICard
-        id="kpi-estado-max"
+        id="kpi-municipio-max"
         icon={<TrendingUp size={16} />}
-        label="Mayor conflicto"
+        label="Máximo"
         value={formatNumber(stats.max)}
-        sub={stats.estado_max}
+        sub={stats.municipioMax}
         accentColor={maxColor}
       />
     </div>

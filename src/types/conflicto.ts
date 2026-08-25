@@ -1,27 +1,65 @@
-// ============================================================
-// Types — Conflicto
-// ============================================================
-
-export interface EstadoData {
-  /** Clave geográfica del INEGI (e.g. "09") */
+export interface MunicipioData {
   cvegeo: string;
-  /** Nombre del estado */
+  cveEnt: string;
+  cveMun: string;
   nombre: string;
-  /** Total de conflictos 2017-2026 */
-  total_conflictos: number;
-  /** Entidad complementaria si existe */
-  entidad?: string;
+  entidad: string;
+  totalConflictos: number;
+  conflictosValidados: number;
+  conflictosPendientes: number;
+  primerAnio: number | null;
+  ultimoAnio: number | null;
 }
 
 export interface GeoJSONProperties {
   CVEGEO: string;
+  CVE_ENT: string;
+  CVE_MUN: string;
   NOMGEO: string;
+  NOMMUN: string;
   total_conflictos: number;
-  entidad?: string;
+  conflictos_validados: number;
+  conflictos_pendientes: number;
+  primer_anio: number | null;
+  ultimo_anio: number | null;
+}
+
+export interface ConflictoRegistro {
+  caseId: string;
+  year: number;
+  project: string;
+  summary: string;
+  entity: string;
+  municipality: string;
+  cvegeo: string[];
+  geographicScope: 'UNIMUNICIPAL' | 'MULTIMUNICIPAL';
+  subsector: string;
+  eventType: string;
+  auditStatus: string;
+  summaryMethod: string;
+  sourcePrimary: string;
+  urlPrimary: string;
+  sourceSecondary: string;
+  urlSecondary: string;
+  sourceCoverage: string;
+}
+
+export interface ConflictDatasetMetadata {
+  generatedAt: string;
+  source: string;
+  uniqueConflicts: number;
+  municipalAssignments: number;
+  joinKey: string;
+  notes: string;
+}
+
+export interface ConflictDataset {
+  metadata: ConflictDatasetMetadata;
+  records: ConflictoRegistro[];
 }
 
 export interface FilterState {
-  selectedEstado: string | null;
+  selectedMunicipio: string | null;
   searchText: string;
 }
 

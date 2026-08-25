@@ -1,56 +1,44 @@
-# Contexto del Proyecto — Geoportal Conflictos México
+# Contexto del proyecto
 
 ## Objetivo
 
-Visualizar conflictos socioambientales por proyectos de desarrollo en México (2017–2026) mediante un geoportal web profesional e interactivo.
+Visualizar conflictos socioambientales de México a escala municipal y conservar la trazabilidad entre cada `CASE_ID`, su clave geoestadística, su resumen y sus URLs de respaldo.
 
-## Estado Actual
+## Estado
 
-**v1.0.0 — Funcional** ✅
+**v1.1.0 — Integración municipal**
 
-## Arquitectura
+## Cobertura
 
-- **Frontend:** React 19 + Vite 8 + TypeScript (estricto)
-- **Mapa:** MapLibre GL JS v5 (open source, sin token)
-- **Estado global:** Zustand
-- **Gráficas:** Recharts
-- **Estilos:** TailwindCSS v3 + CSS Custom Properties
-- **GIS:** proj4 para reproyección EPSG:6372→WGS84
+| Indicador | Valor |
+|---|---:|
+| Municipios en el GeoJSON | 2,478 |
+| Municipios con conflictos | 252 |
+| Conflictos únicos | 393 |
+| Asignaciones municipales | 412 |
+| Claves sin geometría | 0 |
 
-## Datos
+La diferencia entre conflictos únicos y asignaciones se debe a siete registros multimunicipales. Cada `CASE_ID` permanece único en el total nacional, pero participa en todos los municipios indicados por su lista de `CVEGEO`.
 
-- **Fuente:** GeoJSON `Estados_conflictos_con_Base.geojson` (IGUAL, 2017-2026)
-- **CRS original:** EPSG:6372 (México LCC, ITRF2008)
-- **CRS destino:** WGS84 (EPSG:4326)
-- **Procesamiento:** Script Node.js en `scripts/processGeojson.js`
-- **Reducción:** 38MB → 1.6MB (96% menos)
-- **Propiedades clave:** `CVEGEO`, `NOMGEO`, `total_conflictos`
+## Decisiones
 
-## Decisiones Técnicas
+- `CVEGEO` es la llave canónica del join y se conserva como texto de cinco dígitos.
+- El proceso falla si detecta claves municipales sin geometría.
+- Las geometrías se publican en CRS84/WGS84 y se simplifican a `0.0025` grados para uso web.
+- El detalle de conflictos permanece separado del GeoJSON para evitar duplicar texto y URLs en cada polígono.
+- Los conteos municipales son asignaciones territoriales; el KPI nacional usa `CASE_ID` únicos.
 
-| Decisión | Razón |
-|----------|-------|
-| MapLibre GL (no Mapbox) | Open source, sin token de pago |
-| Zustand (no Redux) | Simplicidad, menos boilerplate |
-| Recharts (no D3) | API declarativa, componentes React nativos |
-| Inline styles en contenedor de mapa | MapLibre sobrescribe `position:relative` mediante su propio CSS, anulando Tailwind `absolute inset-0` |
-| Reproyección en build time | Evita procesamiento en cliente, mejor performance |
+## Archivos principales
 
-## Problemas Conocidos
+- `public/data/conflictos_municipales.json`: detalle trazable por conflicto.
+- `public/data/municipios_conflictos.geojson`: geometría y agregados municipales.
+- `scripts/importConflictSummaries.js`: normalización del detalle auditado.
+- `scripts/joinMunicipalities.js`: validación, join y simplificación geográfica.
+- `src/components/map/MapView.tsx`: mapa municipal.
+- `src/components/map/MunicipalityPopup.tsx`: ficha y fuentes del municipio.
 
-- Los labels de estados usan glyphs de `fonts.openmaptiles.org` — puede haber latencia en primera carga
-- Los datos son solo totales por estado (sin detalle de proyectos individuales)
+## Alcance pendiente
 
-## Pendientes Principales
-
-1. Integrar datos detallados (CSV/Excel) con proyectos individuales, años, tipos
-2. Implementar filtros funcionales (año, tipo de conflicto, tipo de proyecto)
-3. Gráficas adicionales (por año, por tipo)
-
-## Rutas de Archivos Importantes
-
-- `public/data/estados_conflictos.geojson` — GeoJSON procesado (WGS84)
-- `src/components/map/MapView.tsx` — Componente principal del mapa
-- `src/store/conflictStore.ts` — Estado global Zustand
-- `src/data/colorScales.ts` — Escala de colores choropleth
-- `scripts/processGeojson.js` — Reproyección + simplificación
+- Añadir filtros por año, subsector y estado de auditoría.
+- Mostrar la fuente secundaria cuando esté disponible.
+- Incorporar una vista tabular descargable de los 393 registros.

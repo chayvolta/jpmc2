@@ -1,85 +1,63 @@
-# Geoportal de Conflictos por Proyectos en México
+# Geoportal de Conflictos por Municipio en México
 
-> Dashboard geoespacial interactivo que visualiza conflictos socioambientales por estado en México (2017–2026).
+Dashboard geoespacial interactivo para consultar conflictos socioambientales por municipio, con clave geoestadística, resumen y URL de fuente por registro.
 
-## 🗺️ Vista previa
+## Cobertura integrada
 
-Mapa choropleth de México con simbología basada en número de conflictos, panel lateral de estadísticas e indicadores KPI en tiempo real.
+- 2,478 municipios con geometría WGS84.
+- 252 municipios con al menos un conflicto asociado.
+- 393 conflictos únicos auditados.
+- 412 asignaciones municipales; los casos multimunicipales se cuentan en cada territorio vinculado.
+- Unión exacta mediante `CVEGEO` de cinco dígitos, sin claves faltantes.
 
-## 🚀 Inicio rápido
+## Inicio rápido
 
 ```bash
-# Instalar dependencias
 npm install
-
-# Procesar GeoJSON (reproyectar de EPSG:6372 a WGS84)
-npm run process-geojson
-
-# Iniciar servidor de desarrollo
 npm run dev
 ```
 
-## 🛠️ Stack Tecnológico
+La aplicación usa los archivos ya procesados de `public/data/`.
 
-| Capa | Tecnología |
-|------|-----------|
-| Framework | React 19 + Vite 8 + TypeScript |
-| Mapa | MapLibre GL JS v5 |
-| Estilos | TailwindCSS v3 |
-| Estado | Zustand |
-| Gráficas | Recharts |
-| GIS | proj4 (reproyección) |
+## Reproducir la integración
 
-## 📁 Estructura del Proyecto
-
-```
-src/
-├── components/
-│   ├── map/          # MapView, MapLegend, StatePopup
-│   ├── stats/        # StatsOverview, Top10Chart, DistributionChart
-│   ├── filters/      # StateSearch
-│   └── layout/       # Header, Sidebar
-├── data/             # colorScales.ts
-├── hooks/            # useGeoJSON.ts
-├── pages/            # Dashboard.tsx
-├── services/         # geojsonService.ts
-├── store/            # conflictStore.ts (Zustand)
-├── types/            # conflicto.ts
-└── utils/            # statsUtils.ts
+```bash
+npm run import-conflicts -- ../record_summaries.json
+npm run join-municipalities -- /ruta/municipalities_simple.geojson 0.0025
+npm run build
 ```
 
-## 🗃️ Datos
+`import-conflicts` valida que cada `CASE_ID` sea único. `join-municipalities` detiene el proceso si una clave `CVEGEO` no tiene geometría y simplifica los polígonos con la tolerancia indicada.
 
-El GeoJSON original (`Estados_conflictos_con_Base.geojson`) usa **EPSG:6372** (Sistema de referencia oficial de México).
-El script `scripts/processGeojson.js` lo reproyecta a **WGS84** y simplifica geometrías:
-- **Entrada:** 38 MB (EPSG:6372)
-- **Salida:** ~1.6 MB (WGS84, listo para MapLibre)
+## Datos publicados
 
-## ✨ Funcionalidades
+| Archivo | Contenido |
+|---|---|
+| `public/data/conflictos_municipales.json` | 393 registros con `CASE_ID`, municipio, `CVEGEO`, resumen y URLs |
+| `public/data/municipios_conflictos.geojson` | 2,478 geometrías con conteos agregados por municipio |
 
-- ✅ Mapa choropleth interactivo de 32 estados
-- ✅ Tooltip en hover con nombre y total de conflictos
-- ✅ Popup detallado al hacer clic (ranking, porcentaje, clasificación)
-- ✅ Panel lateral con KPIs, búsqueda y gráficas
-- ✅ Top 10 estados con mayor conflictividad
-- ✅ Leyenda de escala de colores
-- ✅ Responsive (desktop, tablet, móvil)
+Ambos archivos incluyen metadatos de generación, fuente y llave de unión. El total nacional usa `CASE_ID` únicos; el total territorial usa asignaciones municipales.
 
-## 🗺️ Roadmap
+## Funcionalidades
 
-Ver [ROADMAP.md](ROADMAP.md) para funcionalidades futuras planificadas.
+- Mapa coroplético de municipios de México.
+- Búsqueda por municipio, entidad o `CVEGEO`.
+- Ficha municipal con ranking y conflictos vinculados.
+- Resumen breve y enlace a la fuente principal de cada registro.
+- Indicadores de conflictos únicos, municipios afectados y asignaciones.
+- Top 10 municipal y distribución por intensidad.
 
-## 📝 Changelog
+## Tecnología
 
-Ver [CHANGELOG.md](CHANGELOG.md) para el historial de versiones.
+React 19, Vite 8, TypeScript, MapLibre GL, Zustand, Recharts y TailwindCSS.
 
-## 🏛️ Documentación
+## Documentación
 
 - [Arquitectura](docs/architecture.md)
 - [Modelo de datos](docs/data_model.md)
-- [Contexto del proyecto](docs/project_context.md)
+- [Contexto](docs/project_context.md)
+- [Historial de cambios](CHANGELOG.md)
 
-## 📄 Fuente de datos
+## Fuente
 
-**IGUAL** — Información y Análisis para la Justicia Ambiental y el Territorio
-Período: 2017–2026
+Base auditada de conflictos de IGUAL y archivo municipal proporcionado para el cruce geográfico. La cobertura principal corresponde a registros 2017–2026 e incorpora correcciones históricas conservadas en el campo de año vigente.

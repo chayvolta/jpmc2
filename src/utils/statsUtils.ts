@@ -1,16 +1,13 @@
-// ============================================================
-// Stats Utils — Statistical Calculations
-// ============================================================
-
-import type { EstadoData } from '@/types/conflicto';
+import type { MunicipioData } from '@/types/conflicto';
 
 export interface Stats {
-  total_conflictos: number;
-  estados_afectados: number;
-  promedio: number;
+  totalConflictos: number;
+  asignacionesMunicipales: number;
+  municipiosAfectados: number;
+  promedioAsignaciones: number;
   max: number;
-  estado_max: string;
-  top10: EstadoData[];
+  municipioMax: string;
+  top10: MunicipioData[];
   distribucion: ConflictRange[];
 }
 
@@ -20,67 +17,51 @@ export interface ConflictRange {
   color: string;
 }
 
-/**
- * Calculates comprehensive statistics from state data.
- */
-export function calcularEstadisticas(estados: EstadoData[]): Stats {
-  if (estados.length === 0) {
+export function calcularEstadisticas(municipios: MunicipioData[], totalConflictos: number): Stats {
+  const afectados = municipios.filter((municipio) => municipio.totalConflictos > 0);
+  if (afectados.length === 0) {
     return {
-      total_conflictos: 0,
-      estados_afectados: 0,
-      promedio: 0,
+      totalConflictos,
+      asignacionesMunicipales: 0,
+      municipiosAfectados: 0,
+      promedioAsignaciones: 0,
       max: 0,
-      estado_max: '',
+      municipioMax: '',
       top10: [],
       distribucion: [],
     };
   }
 
-  const total = estados.reduce((sum, e) => sum + e.total_conflictos, 0);
-  const afectados = estados.filter(e => e.total_conflictos > 0).length;
-  const promedio = Math.round(total / estados.length);
-  const sorted = [...estados].sort((a, b) => b.total_conflictos - a.total_conflictos);
-  const maxEstado = sorted[0];
-  const top10 = sorted.slice(0, 10);
-
-  const distribucion: ConflictRange[] = [
-    { label: '0–5',   color: '#cfe8f7', count: estados.filter(e => e.total_conflictos <= 5).length },
-    { label: '6–15',  color: '#9dd1f0', count: estados.filter(e => e.total_conflictos >= 6 && e.total_conflictos <= 15).length },
-    { label: '16–30', color: '#6baed6', count: estados.filter(e => e.total_conflictos >= 16 && e.total_conflictos <= 30).length },
-    { label: '31–60', color: '#2171b5', count: estados.filter(e => e.total_conflictos >= 31 && e.total_conflictos <= 60).length },
-    { label: '61–150',color: '#f59e0b', count: estados.filter(e => e.total_conflictos >= 61 && e.total_conflictos <= 150).length },
-    { label: '151+',  color: '#ef4444', count: estados.filter(e => e.total_conflictos > 150).length },
-  ].filter(r => r.count > 0);
+  const asignacionesMunicipales = afectados.reduce((total, municipio) => total + municipio.totalConflictos, 0);
+  const sorted = [...afectados].sort((left, right) => right.totalConflictos - left.totalConflictos);
+  const maxMunicipio = sorted[0];
 
   return {
-    total_conflictos: total,
-    estados_afectados: afectados,
-    promedio,
-    max: maxEstado.total_conflictos,
-    estado_max: maxEstado.nombre,
-    top10,
-    distribucion,
+    totalConflictos,
+    asignacionesMunicipales,
+    municipiosAfectados: afectados.length,
+    promedioAsignaciones: Math.round((asignacionesMunicipales / afectados.length) * 10) / 10,
+    max: maxMunicipio.totalConflictos,
+    municipioMax: `${maxMunicipio.nombre}, ${maxMunicipio.entidad}`,
+    top10: sorted.slice(0, 10),
+    distribucion: [
+      { label: '1', color: '#bfdbfe', count: afectados.filter((municipio) => municipio.totalConflictos === 1).length },
+      { label: '2', color: '#60a5fa', count: afectados.filter((municipio) => municipio.totalConflictos === 2).length },
+      { label: '3–5', color: '#2563eb', count: afectados.filter((municipio) => municipio.totalConflictos >= 3 && municipio.totalConflictos <= 5).length },
+      { label: '6+', color: '#f59e0b', count: afectados.filter((municipio) => municipio.totalConflictos >= 6).length },
+    ].filter((range) => range.count > 0),
   };
 }
 
-/**
- * Formats a number with thousand separators.
- */
-export function formatNumber(n: number): string {
-  return n.toLocaleString('es-MX');
+export function formatNumber(value: number): string {
+  return value.toLocaleString('es-MX');
 }
 
-/**
- * Returns percentage string.
- */
 export function formatPercent(value: number, total: number): string {
   if (total === 0) return '0%';
   return `${Math.round((value / total) * 100)}%`;
 }
 
-/**
- * Truncates text to a max length with ellipsis.
- */
 export function truncate(text: string, max: number): string {
-  return text.length > max ? text.slice(0, max) + '…' : text;
+  return text.length > max ? `${text.slice(0, max)}…` : text;
 }

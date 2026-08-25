@@ -14,7 +14,7 @@ export default function MapLegend() {
       <div className="flex items-center gap-2 mb-3">
         <AlertTriangle size={14} className="text-amber-400" />
         <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider">
-          Conflictos
+          Conflictos por municipio
         </h4>
       </div>
 
@@ -32,7 +32,7 @@ export default function MapLegend() {
 
       <div className="mt-3 pt-3 border-t border-white/8">
         <p className="text-xs text-slate-500">
-          Período 2017–2026
+          Registros 2017–2026 + correcciones
         </p>
       </div>
     </div>

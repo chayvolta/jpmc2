@@ -1,5 +1,5 @@
 // ============================================================
-// Top10Chart — Horizontal bar chart for top states
+// Top10Chart — Horizontal bar chart for top municipalities
 // ============================================================
 
 import { useMemo } from 'react';
@@ -11,7 +11,7 @@ import { truncate } from '@/utils/statsUtils';
 
 interface CustomTooltipProps {
   active?: boolean;
-  payload?: Array<{ value: number; payload: { name: string } }>;
+  payload?: Array<{ value: number; payload: { name: string; entity: string } }>;
 }
 
 function CustomTooltip({ active, payload }: CustomTooltipProps) {
@@ -19,6 +19,7 @@ function CustomTooltip({ active, payload }: CustomTooltipProps) {
     return (
       <div className="glass rounded-lg px-3 py-2 text-xs">
         <p className="text-slate-300 font-semibold">{payload[0].payload.name}</p>
+        <p className="text-slate-500">{payload[0].payload.entity}</p>
         <p className="text-amber-400 font-bold">{payload[0].value.toLocaleString('es-MX')} conflictos</p>
       </div>
     );
@@ -27,18 +28,19 @@ function CustomTooltip({ active, payload }: CustomTooltipProps) {
 }
 
 export default function Top10Chart() {
-  const { estados, setSelectedEstado } = useConflictStore();
+  const { municipios, conflictos, setSelectedMunicipio } = useConflictStore();
 
   const data = useMemo(() => {
-    const stats = calcularEstadisticas(estados);
-    return stats.top10.map((e) => ({
-      name: e.nombre,
-      shortName: truncate(e.nombre, 14),
-      value: e.total_conflictos,
-      color: getConflictColor(e.total_conflictos),
-      cvegeo: e.cvegeo,
+    const stats = calcularEstadisticas(municipios, conflictos.length);
+    return stats.top10.map((municipio) => ({
+      name: municipio.nombre,
+      entity: municipio.entidad,
+      shortName: truncate(municipio.nombre, 14),
+      value: municipio.totalConflictos,
+      color: getConflictColor(municipio.totalConflictos),
+      cvegeo: municipio.cvegeo,
     }));
-  }, [estados]);
+  }, [conflictos.length, municipios]);
 
   if (data.length === 0) {
     return (
@@ -75,9 +77,9 @@ export default function Top10Chart() {
             dataKey="value"
             radius={[0, 4, 4, 0]}
             cursor="pointer"
-            onClick={(d) => {
-              const estado = estados.find(e => e.cvegeo === d.cvegeo);
-              if (estado) setSelectedEstado(estado);
+            onClick={(entry) => {
+              const municipio = municipios.find((candidate) => candidate.cvegeo === entry.cvegeo);
+              if (municipio) setSelectedMunicipio(municipio);
             }}
           >
             {data.map((entry, index) => (

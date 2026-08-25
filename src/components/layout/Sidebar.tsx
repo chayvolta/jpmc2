@@ -6,7 +6,7 @@ import { useConflictStore } from '@/store/conflictStore';
 import StatsOverview from '@/components/stats/StatsOverview';
 import Top10Chart from '@/components/stats/Top10Chart';
 import DistributionChart from '@/components/stats/DistributionChart';
-import StateSearch from '@/components/filters/StateSearch';
+import MunicipalitySearch from '@/components/filters/MunicipalitySearch';
 import { BarChart2, Search, Layers, ChevronDown, ChevronUp } from 'lucide-react';
 import { useState } from 'react';
 
@@ -76,15 +76,15 @@ export default function Sidebar() {
                 <StatsOverview />
               </Section>
 
-              {/* State search */}
-              <Section id="section-busqueda" title="Buscar estado" icon={<Search size={13} />}>
-                <StateSearch />
+              {/* Municipality search */}
+              <Section id="section-busqueda" title="Buscar municipio" icon={<Search size={13} />}>
+                <MunicipalitySearch />
               </Section>
 
               {/* Top 10 */}
-              <Section id="section-top10" title="Top 10 estados" icon={<BarChart2 size={13} />}>
+              <Section id="section-top10" title="Top 10 municipios" icon={<BarChart2 size={13} />}>
                 <p className="text-xs text-slate-500 mb-3">
-                  Estados con mayor número de conflictos
+                  Municipios con mayor número de conflictos
                 </p>
                 <Top10Chart />
               </Section>
@@ -92,7 +92,7 @@ export default function Sidebar() {
               {/* Distribution */}
               <Section id="section-distribucion" title="Distribución" icon={<BarChart2 size={13} />} defaultOpen={false}>
                 <p className="text-xs text-slate-500 mb-2">
-                  Estados por rango de conflictos
+                  Municipios afectados por rango
                 </p>
                 <DistributionChart />
               </Section>
@@ -103,7 +103,7 @@ export default function Sidebar() {
         {/* Footer */}
         <div className="px-4 py-3 border-t border-white/8 bg-surface-800/50">
           <p className="text-xs text-slate-600 text-center">
-            Fuente: IGUAL · Período 2017–2026
+            Fuente: IGUAL · Registros 2017–2026 y correcciones históricas
           </p>
         </div>
       </div>

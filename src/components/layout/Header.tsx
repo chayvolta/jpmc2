@@ -6,7 +6,8 @@ import { useConflictStore } from '@/store/conflictStore';
 import { PanelLeft, AlertTriangle } from 'lucide-react';
 
 export default function Header() {
-  const { toggleSidebar, sidebarOpen } = useConflictStore();
+  const { toggleSidebar, sidebarOpen, municipios, metadata } = useConflictStore();
+  const affectedMunicipalities = municipios.filter((municipio) => municipio.totalConflictos > 0).length;
 
   return (
     <header
@@ -39,9 +40,9 @@ export default function Header() {
           </div>
           <div className="min-w-0 hidden sm:block">
             <h1 className="text-sm font-bold text-white leading-tight truncate">
-              Conflictos por Proyectos en México
+              Conflictos por Municipio en México
             </h1>
-            <p className="text-xs text-slate-500 leading-none">2017 – 2026</p>
+            <p className="text-xs text-slate-500 leading-none">Registros auditados y correcciones históricas</p>
           </div>
           {/* Mobile short title */}
           <div className="sm:hidden">
@@ -54,7 +55,9 @@ export default function Header() {
       <div className="flex items-center gap-3 flex-shrink-0">
         <div className="hidden md:flex items-center gap-1.5">
           <div className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse-slow" />
-          <span className="text-xs text-slate-400">32 estados</span>
+          <span className="text-xs text-slate-400">
+            {affectedMunicipalities.toLocaleString('es-MX')} municipios · {(metadata?.uniqueConflicts ?? 0).toLocaleString('es-MX')} registros
+          </span>
         </div>
         <div className="hidden md:block w-px h-4 bg-white/12" />
         <div className="badge" style={{ backgroundColor: 'rgba(245, 158, 11, 0.15)', color: '#f59e0b', border: '1px solid rgba(245, 158, 11, 0.3)' }}>

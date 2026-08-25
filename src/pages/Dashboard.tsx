@@ -7,16 +7,16 @@ import Header from '@/components/layout/Header';
 import Sidebar from '@/components/layout/Sidebar';
 import MapView from '@/components/map/MapView';
 import MapLegend from '@/components/map/MapLegend';
-import { useGeoJSON } from '@/hooks/useGeoJSON';
+import { useMunicipalData } from '@/hooks/useMunicipalData';
 import { useConflictStore } from '@/store/conflictStore';
 
 export default function Dashboard() {
-  const { error } = useGeoJSON();
+  const { error } = useMunicipalData();
   const { isLoading } = useConflictStore();
 
   // Set page title
   useEffect(() => {
-    document.title = 'Conflictos por Proyectos en México 2017–2026 | Geoportal';
+    document.title = 'Conflictos por Municipio en México | Geoportal';
   }, []);
 
   if (error) {
@@ -63,7 +63,7 @@ export default function Dashboard() {
                 </div>
                 <div className="text-center">
                   <p className="text-sm font-semibold text-slate-200">Cargando geoportal</p>
-                  <p className="text-xs text-slate-500 mt-1">Procesando datos de conflictos...</p>
+                  <p className="text-xs text-slate-500 mt-1">Procesando municipios y conflictos...</p>
                 </div>
               </div>
             </div>

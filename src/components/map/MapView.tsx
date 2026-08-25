@@ -1,28 +1,61 @@
-// ============================================================
-// MapView — Main MapLibre GL Map Component
-// ============================================================
-
-import { useEffect, useRef, useCallback } from 'react';
-import maplibregl from 'maplibre-gl';
-import 'maplibre-gl/dist/maplibre-gl.css';
-import { useConflictStore } from '@/store/conflictStore';
-import { getMapLibreColorExpression } from '@/data/colorScales';
-import type { GeoJSONProperties } from '@/types/conflicto';
-import StatePopup from './StatePopup';
+import { useCallback, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { Root } from 'react-dom/client';
+import maplibregl from 'maplibre-gl';
+import 'maplibre-gl/dist/maplibre-gl.css';
+import { getMapLibreColorExpression } from '@/data/colorScales';
+import { useConflictStore } from '@/store/conflictStore';
+import type { GeoJSONFeature } from '@/services/geojsonService';
+import type { GeoJSONProperties, MunicipioData } from '@/types/conflicto';
+import MunicipalityPopup from './MunicipalityPopup';
 
-const MAP_SOURCE_ID = 'estados-source';
-const FILL_LAYER_ID = 'estados-fill';
-const STROKE_LAYER_ID = 'estados-stroke';
-const HOVER_LAYER_ID = 'estados-hover';
-const LABEL_LAYER_ID = 'estados-labels';
+const MAP_SOURCE_ID = 'municipios-source';
+const FILL_LAYER_ID = 'municipios-fill';
+const HOVER_LAYER_ID = 'municipios-hover';
+const STROKE_LAYER_ID = 'municipios-stroke';
+const LABEL_LAYER_ID = 'municipios-labels';
 
-// Mexico approximate bounds [west, south, east, north]
 const MEXICO_BOUNDS: maplibregl.LngLatBoundsLike = [
   [-118.5, 14.5],
   [-86.7, 32.7],
 ];
+
+function municipalityFromProperties(properties: GeoJSONProperties): MunicipioData {
+  return {
+    cvegeo: properties.CVEGEO,
+    cveEnt: properties.CVE_ENT,
+    cveMun: properties.CVE_MUN,
+    nombre: properties.NOMMUN,
+    entidad: properties.NOMGEO,
+    totalConflictos: properties.total_conflictos ?? 0,
+    conflictosValidados: properties.conflictos_validados ?? 0,
+    conflictosPendientes: properties.conflictos_pendientes ?? 0,
+    primerAnio: properties.primer_anio ?? null,
+    ultimoAnio: properties.ultimo_anio ?? null,
+  };
+}
+
+function getFeatureBounds(feature: GeoJSONFeature): maplibregl.LngLatBounds | null {
+  const bounds = new maplibregl.LngLatBounds();
+  let coordinateCount = 0;
+
+  function addCoordinates(value: unknown): void {
+    if (!Array.isArray(value)) return;
+    if (
+      value.length >= 2 &&
+      typeof value[0] === 'number' &&
+      typeof value[1] === 'number'
+    ) {
+      bounds.extend([value[0], value[1]]);
+      coordinateCount += 1;
+      return;
+    }
+    value.forEach(addCoordinates);
+  }
+
+  addCoordinates(feature.geometry.coordinates);
+  return coordinateCount > 0 ? bounds : null;
+}
 
 export default function MapView() {
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -33,14 +66,23 @@ export default function MapView() {
 
   const {
     geojson,
-    setHoveredEstado,
-    setSelectedEstado,
-    estados,
-    hoveredEstado,
-    selectedEstado,
+    municipios,
+    hoveredMunicipio,
+    selectedMunicipio,
+    setHoveredMunicipio,
+    setSelectedMunicipio,
   } = useConflictStore();
 
-  // --- Initialize Map ---
+  const removePopup = useCallback(() => {
+    popupRef.current?.remove();
+    popupRef.current = null;
+    if (popupRootRef.current) {
+      const popupRoot = popupRootRef.current;
+      popupRootRef.current = null;
+      queueMicrotask(() => popupRoot.unmount());
+    }
+  }, []);
+
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return;
 
@@ -48,7 +90,6 @@ export default function MapView() {
       container: mapContainerRef.current,
       style: {
         version: 8,
-        // Using MapTiler's reliable glyph CDN instead of demotiles (which has 404s)
         glyphs: 'https://fonts.openmaptiles.org/{fontstack}/{range}.pbf',
         sources: {},
         layers: [
@@ -65,58 +106,109 @@ export default function MapView() {
       logoPosition: 'bottom-left',
     });
 
-    // Navigation controls
-    map.addControl(
-      new maplibregl.NavigationControl({ showCompass: false }),
-      'top-right'
-    );
-
-    // Scale control
-    map.addControl(
-      new maplibregl.ScaleControl({ unit: 'metric' }),
-      'bottom-right'
-    );
-
+    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
+    map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-right');
     mapRef.current = map;
 
-    // ResizeObserver: tells MapLibre to redraw when container size changes
-    // (e.g. when sidebar opens/closes)
-    const resizeObserver = new ResizeObserver(() => {
-      map.resize();
-    });
-    if (mapContainerRef.current) {
-      resizeObserver.observe(mapContainerRef.current);
-    }
+    const resizeObserver = new ResizeObserver(() => map.resize());
+    resizeObserver.observe(mapContainerRef.current);
 
     return () => {
       resizeObserver.disconnect();
+      removePopup();
       map.remove();
       mapRef.current = null;
     };
-  }, []);
+  }, [removePopup]);
 
-  // --- Add GeoJSON layer when data is ready ---
+  const setupEventHandlers = useCallback((map: maplibregl.Map) => {
+    map.on('mousemove', FILL_LAYER_ID, (event) => {
+      const feature = event.features?.[0];
+      const cvegeo = feature?.properties?.CVEGEO as string | undefined;
+      if (!cvegeo) return;
+
+      if (hoveredIdRef.current && hoveredIdRef.current !== cvegeo) {
+        map.setFeatureState(
+          { source: MAP_SOURCE_ID, id: hoveredIdRef.current },
+          { hover: false }
+        );
+      }
+
+      hoveredIdRef.current = cvegeo;
+      map.setFeatureState({ source: MAP_SOURCE_ID, id: cvegeo }, { hover: true });
+      map.getCanvas().style.cursor = 'pointer';
+      setHoveredMunicipio(cvegeo);
+    });
+
+    map.on('mouseleave', FILL_LAYER_ID, () => {
+      if (hoveredIdRef.current) {
+        map.setFeatureState(
+          { source: MAP_SOURCE_ID, id: hoveredIdRef.current },
+          { hover: false }
+        );
+        hoveredIdRef.current = null;
+      }
+      map.getCanvas().style.cursor = '';
+      setHoveredMunicipio(null);
+    });
+
+    map.on('click', FILL_LAYER_ID, (event) => {
+      const feature = event.features?.[0];
+      if (!feature) return;
+
+      const properties = feature.properties as GeoJSONProperties;
+      const state = useConflictStore.getState();
+      const municipality = state.municipios.find(
+        (candidate) => candidate.cvegeo === properties.CVEGEO
+      ) ?? municipalityFromProperties(properties);
+      const municipalityConflicts = state.conflictos.filter((conflict) =>
+        conflict.cvegeo.includes(municipality.cvegeo)
+      );
+
+      setSelectedMunicipio(municipality);
+      removePopup();
+
+      const popupNode = document.createElement('div');
+      const popupRoot = createRoot(popupNode);
+      popupRoot.render(
+        <MunicipalityPopup
+          municipio={municipality}
+          conflictos={municipalityConflicts}
+          onClose={() => {
+            removePopup();
+            setSelectedMunicipio(null);
+          }}
+        />
+      );
+      popupRootRef.current = popupRoot;
+
+      popupRef.current = new maplibregl.Popup({
+        closeButton: false,
+        maxWidth: '440px',
+        offset: 15,
+      })
+        .setLngLat(event.lngLat)
+        .setDOMContent(popupNode)
+        .addTo(map);
+    });
+  }, [removePopup, setHoveredMunicipio, setSelectedMunicipio]);
+
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !geojson) return;
 
     function addLayers() {
-      if (!map) return;
-
-      // Remove existing layers/source
-      [LABEL_LAYER_ID, HOVER_LAYER_ID, STROKE_LAYER_ID, FILL_LAYER_ID].forEach(id => {
-        if (map.getLayer(id)) map.removeLayer(id);
+      [LABEL_LAYER_ID, HOVER_LAYER_ID, STROKE_LAYER_ID, FILL_LAYER_ID].forEach((layerId) => {
+        if (map.getLayer(layerId)) map.removeLayer(layerId);
       });
       if (map.getSource(MAP_SOURCE_ID)) map.removeSource(MAP_SOURCE_ID);
 
-      // Add GeoJSON source
       map.addSource(MAP_SOURCE_ID, {
         type: 'geojson',
         data: geojson as maplibregl.GeoJSONSourceSpecification['data'],
         promoteId: 'CVEGEO',
       });
 
-      // Fill layer — choropleth
       map.addLayer({
         id: FILL_LAYER_ID,
         type: 'fill',
@@ -126,13 +218,14 @@ export default function MapView() {
           'fill-opacity': [
             'case',
             ['boolean', ['feature-state', 'hover'], false],
-            0.95,
-            0.82,
+            0.96,
+            ['==', ['get', 'total_conflictos'], 0],
+            0.28,
+            0.84,
           ],
         },
       });
 
-      // Hover highlight layer
       map.addLayer({
         id: HOVER_LAYER_ID,
         type: 'fill',
@@ -148,7 +241,6 @@ export default function MapView() {
         },
       });
 
-      // State border stroke
       map.addLayer({
         id: STROKE_LAYER_ID,
         type: 'line',
@@ -158,244 +250,102 @@ export default function MapView() {
             'case',
             ['boolean', ['feature-state', 'hover'], false],
             '#ffffff',
-            '#1a2744',
+            '#334155',
           ],
           'line-width': [
-            'case',
-            ['boolean', ['feature-state', 'hover'], false],
-            2,
-            0.8,
+            'interpolate',
+            ['linear'],
+            ['zoom'],
+            3,
+            ['case', ['boolean', ['feature-state', 'hover'], false], 1.8, 0.15],
+            8,
+            ['case', ['boolean', ['feature-state', 'hover'], false], 1.8, 0.7],
           ],
-          'line-opacity': 0.8,
+          'line-opacity': 0.78,
         },
       });
 
-      // State name labels
       map.addLayer({
         id: LABEL_LAYER_ID,
         type: 'symbol',
         source: MAP_SOURCE_ID,
+        minzoom: 6,
+        filter: ['>', ['get', 'total_conflictos'], 0],
         layout: {
-          'text-field': ['get', 'NOMGEO'],
+          'text-field': ['get', 'NOMMUN'],
           'text-font': ['Open Sans Regular'],
-          'text-size': [
-            'interpolate', ['linear'], ['zoom'],
-            4, 8,
-            7, 11,
-          ],
-          'text-max-width': 8,
+          'text-size': ['interpolate', ['linear'], ['zoom'], 6, 8, 10, 11],
+          'text-max-width': 7,
           'text-allow-overlap': false,
         },
         paint: {
-          'text-color': '#e2e8f0',
+          'text-color': '#f8fafc',
           'text-halo-color': '#0f1117',
-          'text-halo-width': 1.5,
-          'text-opacity': ['interpolate', ['linear'], ['zoom'], 4, 0, 5, 0.8],
+          'text-halo-width': 1.25,
+          'text-opacity': ['interpolate', ['linear'], ['zoom'], 6, 0.3, 7, 0.88],
         },
       });
 
       setupEventHandlers(map);
     }
 
-    if (map.loaded()) {
-      addLayers();
-    } else {
-      map.on('load', addLayers);
-    }
+    if (map.loaded()) addLayers();
+    else map.once('load', addLayers);
+  }, [geojson, setupEventHandlers]);
 
-    return () => {
-      map.off('load', addLayers);
-    };
-  }, [geojson]);
-
-  // --- Event handlers ---
-  const setupEventHandlers = useCallback((map: maplibregl.Map) => {
-    // Mousemove — hover effect + tooltip
-    map.on('mousemove', FILL_LAYER_ID, (e) => {
-      if (e.features && e.features.length > 0) {
-        const feature = e.features[0];
-        const cvegeo = feature.properties?.CVEGEO as string;
-
-        if (hoveredIdRef.current && hoveredIdRef.current !== cvegeo) {
-          map.setFeatureState(
-            { source: MAP_SOURCE_ID, id: hoveredIdRef.current },
-            { hover: false }
-          );
-        }
-
-        hoveredIdRef.current = cvegeo;
-        map.setFeatureState(
-          { source: MAP_SOURCE_ID, id: cvegeo },
-          { hover: true }
-        );
-
-        map.getCanvas().style.cursor = 'pointer';
-        setHoveredEstado(cvegeo);
-      }
-    });
-
-    // Mouseleave
-    map.on('mouseleave', FILL_LAYER_ID, () => {
-      if (hoveredIdRef.current) {
-        map.setFeatureState(
-          { source: MAP_SOURCE_ID, id: hoveredIdRef.current },
-          { hover: false }
-        );
-        hoveredIdRef.current = null;
-      }
-      map.getCanvas().style.cursor = '';
-      setHoveredEstado(null);
-    });
-
-    // Click — show popup
-    map.on('click', FILL_LAYER_ID, (e) => {
-      if (!e.features || e.features.length === 0) return;
-
-      const props = e.features[0].properties as GeoJSONProperties;
-      const cvegeo = props.CVEGEO;
-
-      // Find estado data
-      const estadoData = useConflictStore.getState().estados.find(
-        (est) => est.cvegeo === cvegeo
-      ) ?? {
-        cvegeo,
-        nombre: props.NOMGEO,
-        total_conflictos: props.total_conflictos ?? 0,
-      };
-
-      setSelectedEstado(estadoData);
-
-      // Remove existing popup
-      if (popupRef.current) {
-        popupRef.current.remove();
-        popupRef.current = null;
-      }
-      if (popupRootRef.current) {
-        popupRootRef.current.unmount();
-        popupRootRef.current = null;
-      }
-
-      const coordinates = e.lngLat;
-      const popupNode = document.createElement('div');
-      const root = createRoot(popupNode);
-      root.render(
-        <StatePopup
-          estado={estadoData}
-          onClose={() => {
-            if (popupRef.current) {
-              popupRef.current.remove();
-              popupRef.current = null;
-            }
-            if (popupRootRef.current) {
-              popupRootRef.current.unmount();
-              popupRootRef.current = null;
-            }
-            setSelectedEstado(null);
-          }}
-        />
-      );
-      popupRootRef.current = root;
-
-      const popup = new maplibregl.Popup({
-        closeButton: false,
-        maxWidth: '380px',
-        offset: 15,
-      })
-        .setLngLat(coordinates)
-        .setDOMContent(popupNode)
-        .addTo(map);
-
-      popupRef.current = popup;
-    });
-  }, [setHoveredEstado, setSelectedEstado]);
-
-  // --- Fly to selected state when changed from sidebar ---
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !selectedEstado || !geojson) return;
+    if (!map || !selectedMunicipio || !geojson) return;
 
-    // Find the feature to zoom to
     const feature = geojson.features.find(
-      (f) => f.properties.CVEGEO === selectedEstado.cvegeo
+      (candidate) => candidate.properties.CVEGEO === selectedMunicipio.cvegeo
     );
+    if (!feature) return;
 
-    if (feature) {
-      // Simple centroid approximation
-      try {
-        const coords = feature.geometry.type === 'Polygon'
-          ? (feature.geometry.coordinates as number[][][])[0]
-          : (feature.geometry.coordinates as number[][][][])[0][0];
-
-        if (coords && coords.length > 0) {
-          const lons = coords.map((c) => (c as number[])[0]);
-          const lats = coords.map((c) => (c as number[])[1]);
-          const centerLon = (Math.min(...lons) + Math.max(...lons)) / 2;
-          const centerLat = (Math.min(...lats) + Math.max(...lats)) / 2;
-
-          map.flyTo({
-            center: [centerLon, centerLat],
-            zoom: 6,
-            duration: 1200,
-            essential: true,
-          });
-        }
-      } catch {
-        // Ignore centroid errors
-      }
+    const bounds = getFeatureBounds(feature);
+    if (bounds) {
+      map.fitBounds(bounds, {
+        padding: 100,
+        maxZoom: 9,
+        duration: 1000,
+      });
     }
-  }, [selectedEstado, geojson]);
+  }, [geojson, selectedMunicipio]);
 
-  // --- Hover tooltip component ---
-  const hoveredData = hoveredEstado
-    ? estados.find((e) => e.cvegeo === hoveredEstado)
+  const hoveredData = hoveredMunicipio
+    ? municipios.find((municipio) => municipio.cvegeo === hoveredMunicipio)
     : null;
 
   return (
     <div className="relative w-full h-full">
-      {/* Map container — inline style needed because MapLibre GL overrides position:absolute via its own CSS */}
       <div
         ref={mapContainerRef}
         id="map-container"
-        style={{
-          position: 'absolute',
-          top: 0,
-          right: 0,
-          bottom: 0,
-          left: 0,
-          width: '100%',
-          height: '100%',
-        }}
+        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
       />
 
-      {/* Hover tooltip */}
       {hoveredData && (
-        <div
-          className="absolute top-4 left-1/2 -translate-x-1/2 pointer-events-none z-20 animate-fade-in"
-          id="map-tooltip"
-        >
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 pointer-events-none z-20 animate-fade-in">
           <div className="glass rounded-lg px-4 py-2 flex items-center gap-3">
-            <span className="text-sm font-semibold text-slate-200">
-              {hoveredData.nombre}
-            </span>
-            <span className="text-xs text-slate-400">|</span>
+            <div>
+              <p className="text-sm font-semibold text-slate-200">{hoveredData.nombre}</p>
+              <p className="text-xs text-slate-500">{hoveredData.entidad} · {hoveredData.cvegeo}</p>
+            </div>
+            <span className="text-xs text-slate-600">|</span>
             <span className="text-sm font-bold text-amber-400">
-              {hoveredData.total_conflictos.toLocaleString('es-MX')}
+              {hoveredData.totalConflictos.toLocaleString('es-MX')}
             </span>
             <span className="text-xs text-slate-400">conflictos</span>
           </div>
         </div>
       )}
 
-      {/* Reset view button */}
       <button
         id="btn-reset-view"
         onClick={() => {
           mapRef.current?.fitBounds(MEXICO_BOUNDS, { padding: 40, duration: 1000 });
-          setSelectedEstado(null);
-          if (popupRef.current) {
-            popupRef.current.remove();
-            popupRef.current = null;
-          }
+          setSelectedMunicipio(null);
+          removePopup();
         }}
         className="absolute bottom-12 right-4 z-10 glass rounded-lg px-3 py-2 text-xs text-slate-300 hover:text-white hover:border-ocean-500 transition-all duration-200 flex items-center gap-1.5"
         title="Restablecer vista de México"
@@ -406,41 +356,12 @@ export default function MapView() {
         México
       </button>
 
-      {/* ── Logos panel — top right corner of map ── */}
-      <div
-        id="map-logos-panel"
-        className="absolute top-4 right-14 z-10 pointer-events-none flex flex-col items-end gap-2"
-      >
-        {/* IGUAL Consultores logo — arriba */}
-        <div
-          className="rounded-xl shadow-card border border-white/10 px-4 py-2"
-          style={{
-            background: 'rgba(255, 255, 255, 0.97)',
-            backdropFilter: 'blur(12px)',
-            boxShadow: '0 4px 24px rgba(0,0,0,0.35)',
-          }}
-        >
-          <img
-            src="/logos/logo-igual.png"
-            alt="IGUAL Consultores"
-            style={{ display: 'block', height: '28px', width: 'auto', objectFit: 'contain' }}
-          />
+      <div id="map-logos-panel" className="absolute top-4 right-14 z-10 pointer-events-none flex flex-col items-end gap-2">
+        <div className="rounded-xl shadow-card border border-white/10 px-4 py-2" style={{ background: 'rgba(255, 255, 255, 0.97)', backdropFilter: 'blur(12px)' }}>
+          <img src="/logos/logo-igual.png" alt="IGUAL Consultores" className="block h-7 w-auto object-contain" />
         </div>
-
-        {/* UN Global Compact — full Spanish banner — abajo, más grande */}
-        <div
-          className="rounded-xl overflow-hidden shadow-card border border-white/10"
-          style={{
-            background: 'rgba(27, 45, 91, 0.95)',
-            backdropFilter: 'blur(12px)',
-            boxShadow: '0 4px 24px rgba(0,0,0,0.4)',
-          }}
-        >
-          <img
-            src="/logos/logo-ungc.png"
-            alt="UN Global Compact — 2026 Participant"
-            style={{ display: 'block', height: '110px', width: 'auto', maxWidth: '440px', objectFit: 'contain' }}
-          />
+        <div className="rounded-xl overflow-hidden shadow-card border border-white/10" style={{ background: 'rgba(27, 45, 91, 0.95)', backdropFilter: 'blur(12px)' }}>
+          <img src="/logos/logo-ungc.png" alt="UN Global Compact — 2026 Participant" className="block h-[110px] w-auto max-w-[440px] object-contain" />
         </div>
       </div>
     </div>

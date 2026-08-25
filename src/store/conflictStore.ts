@@ -1,31 +1,31 @@
-// ============================================================
-// Zustand Store — Global Application State
-// ============================================================
-
 import { create } from 'zustand';
-import type { EstadoData, FilterState } from '@/types/conflicto';
+import type {
+  ConflictoRegistro,
+  ConflictDatasetMetadata,
+  FilterState,
+  MunicipioData,
+} from '@/types/conflicto';
 import type { GeoJSONCollection } from '@/services/geojsonService';
 
 interface ConflictStore {
-  // Data
   geojson: GeoJSONCollection | null;
-  estados: EstadoData[];
+  municipios: MunicipioData[];
+  conflictos: ConflictoRegistro[];
+  metadata: ConflictDatasetMetadata | null;
   isLoading: boolean;
   error: string | null;
-
-  // UI State
-  hoveredEstado: string | null;
-  selectedEstado: EstadoData | null;
+  hoveredMunicipio: string | null;
+  selectedMunicipio: MunicipioData | null;
   sidebarOpen: boolean;
   filters: FilterState;
-
-  // Actions
   setGeoJSON: (geojson: GeoJSONCollection) => void;
-  setEstados: (estados: EstadoData[]) => void;
+  setMunicipios: (municipios: MunicipioData[]) => void;
+  setConflictos: (conflictos: ConflictoRegistro[]) => void;
+  setMetadata: (metadata: ConflictDatasetMetadata) => void;
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
-  setHoveredEstado: (cvegeo: string | null) => void;
-  setSelectedEstado: (estado: EstadoData | null) => void;
+  setHoveredMunicipio: (cvegeo: string | null) => void;
+  setSelectedMunicipio: (municipio: MunicipioData | null) => void;
   toggleSidebar: () => void;
   setSidebarOpen: (open: boolean) => void;
   setFilters: (filters: Partial<FilterState>) => void;
@@ -33,31 +33,31 @@ interface ConflictStore {
 }
 
 const initialFilters: FilterState = {
-  selectedEstado: null,
+  selectedMunicipio: null,
   searchText: '',
 };
 
 export const useConflictStore = create<ConflictStore>((set) => ({
-  // Initial state
   geojson: null,
-  estados: [],
+  municipios: [],
+  conflictos: [],
+  metadata: null,
   isLoading: true,
   error: null,
-  hoveredEstado: null,
-  selectedEstado: null,
+  hoveredMunicipio: null,
+  selectedMunicipio: null,
   sidebarOpen: true,
   filters: initialFilters,
-
-  // Actions
   setGeoJSON: (geojson) => set({ geojson }),
-  setEstados: (estados) => set({ estados }),
+  setMunicipios: (municipios) => set({ municipios }),
+  setConflictos: (conflictos) => set({ conflictos }),
+  setMetadata: (metadata) => set({ metadata }),
   setLoading: (isLoading) => set({ isLoading }),
   setError: (error) => set({ error }),
-  setHoveredEstado: (hoveredEstado) => set({ hoveredEstado }),
-  setSelectedEstado: (selectedEstado) => set({ selectedEstado }),
+  setHoveredMunicipio: (hoveredMunicipio) => set({ hoveredMunicipio }),
+  setSelectedMunicipio: (selectedMunicipio) => set({ selectedMunicipio }),
   toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
   setSidebarOpen: (sidebarOpen) => set({ sidebarOpen }),
-  setFilters: (filters) =>
-    set((state) => ({ filters: { ...state.filters, ...filters } })),
+  setFilters: (filters) => set((state) => ({ filters: { ...state.filters, ...filters } })),
   resetFilters: () => set({ filters: initialFilters }),
 }));

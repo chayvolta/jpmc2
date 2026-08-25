@@ -18,7 +18,7 @@ function CustomTooltip({ active, payload }: CustomTooltipProps) {
       <div className="glass rounded-lg px-3 py-2 text-xs">
         <p className="text-slate-300 font-semibold">{payload[0].name}</p>
         <p style={{ color: payload[0].payload.color }} className="font-bold">
-          {payload[0].value} estados
+          {payload[0].value} municipios
         </p>
       </div>
     );
@@ -27,16 +27,16 @@ function CustomTooltip({ active, payload }: CustomTooltipProps) {
 }
 
 export default function DistributionChart() {
-  const { estados } = useConflictStore();
+  const { municipios, conflictos } = useConflictStore();
 
   const data = useMemo(() => {
-    const stats = calcularEstadisticas(estados);
-    return stats.distribucion.map((d) => ({
-      name: d.label,
-      value: d.count,
-      color: d.color,
+    const stats = calcularEstadisticas(municipios, conflictos.length);
+    return stats.distribucion.map((range) => ({
+      name: range.label,
+      value: range.count,
+      color: range.color,
     }));
-  }, [estados]);
+  }, [conflictos.length, municipios]);
 
   if (data.length === 0) {
     return (

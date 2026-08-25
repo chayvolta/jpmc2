@@ -1,8 +1,8 @@
-// ============================================================
-// GeoJSON Service — Load and normalize GeoJSON data
-// ============================================================
-
-import type { EstadoData, GeoJSONProperties } from '@/types/conflicto';
+import type {
+  ConflictDataset,
+  GeoJSONProperties,
+  MunicipioData,
+} from '@/types/conflicto';
 
 export interface GeoJSONFeature {
   type: 'Feature';
@@ -13,69 +13,87 @@ export interface GeoJSONFeature {
   };
 }
 
+export interface GeoJSONMetadata {
+  generatedAt: string;
+  source: string;
+  conflictsSource: string;
+  joinKey: string;
+  municipalities: number;
+  municipalitiesWithConflicts: number;
+  uniqueConflicts: number;
+  municipalAssignments: number;
+  simplificationToleranceDegrees: number;
+}
+
 export interface GeoJSONCollection {
   type: 'FeatureCollection';
+  metadata: GeoJSONMetadata;
   features: GeoJSONFeature[];
 }
 
-let cachedGeoJSON: GeoJSONCollection | null = null;
-let cachedEstados: EstadoData[] | null = null;
+export interface MunicipalDataBundle {
+  geojson: GeoJSONCollection;
+  conflicts: ConflictDataset;
+}
 
-/**
- * Loads and caches the processed GeoJSON from public/data.
- */
-export async function loadGeoJSON(): Promise<GeoJSONCollection> {
-  if (cachedGeoJSON) return cachedGeoJSON;
+let cachedBundle: MunicipalDataBundle | null = null;
+let cachedMunicipios: MunicipioData[] | null = null;
 
-  const response = await fetch('/data/estados_conflictos.geojson');
-  if (!response.ok) {
-    throw new Error(`Error cargando GeoJSON: ${response.status} ${response.statusText}`);
+export async function loadMunicipalData(): Promise<MunicipalDataBundle> {
+  if (cachedBundle) return cachedBundle;
+
+  const [geojsonResponse, conflictsResponse] = await Promise.all([
+    fetch('/data/municipios_conflictos.geojson'),
+    fetch('/data/conflictos_municipales.json'),
+  ]);
+
+  if (!geojsonResponse.ok) {
+    throw new Error(`Error cargando municipios: ${geojsonResponse.status} ${geojsonResponse.statusText}`);
+  }
+  if (!conflictsResponse.ok) {
+    throw new Error(`Error cargando conflictos: ${conflictsResponse.status} ${conflictsResponse.statusText}`);
   }
 
-  const data = await response.json() as GeoJSONCollection;
-  cachedGeoJSON = data;
-  return data;
+  const geojson = await geojsonResponse.json() as GeoJSONCollection;
+  const conflicts = await conflictsResponse.json() as ConflictDataset;
+  cachedBundle = { geojson, conflicts };
+  return cachedBundle;
 }
 
-/**
- * Extracts normalized state data from GeoJSON features.
- */
-export function extractEstados(geojson: GeoJSONCollection): EstadoData[] {
-  if (cachedEstados) return cachedEstados;
+export function extractMunicipios(geojson: GeoJSONCollection): MunicipioData[] {
+  if (cachedMunicipios) return cachedMunicipios;
 
-  const estados: EstadoData[] = geojson.features.map((feature) => ({
+  cachedMunicipios = geojson.features.map((feature) => ({
     cvegeo: feature.properties.CVEGEO,
-    nombre: normalizeStateName(feature.properties.NOMGEO),
-    total_conflictos: feature.properties.total_conflictos ?? 0,
-    entidad: feature.properties.entidad,
+    cveEnt: feature.properties.CVE_ENT,
+    cveMun: feature.properties.CVE_MUN,
+    nombre: feature.properties.NOMMUN,
+    entidad: normalizeStateName(feature.properties.NOMGEO),
+    totalConflictos: feature.properties.total_conflictos ?? 0,
+    conflictosValidados: feature.properties.conflictos_validados ?? 0,
+    conflictosPendientes: feature.properties.conflictos_pendientes ?? 0,
+    primerAnio: feature.properties.primer_anio ?? null,
+    ultimoAnio: feature.properties.ultimo_anio ?? null,
   }));
 
-  // Sort by total conflicts descending
-  estados.sort((a, b) => b.total_conflictos - a.total_conflictos);
-  cachedEstados = estados;
-  return estados;
+  cachedMunicipios.sort((left, right) =>
+    right.totalConflictos - left.totalConflictos ||
+    left.entidad.localeCompare(right.entidad, 'es-MX') ||
+    left.nombre.localeCompare(right.nombre, 'es-MX')
+  );
+  return cachedMunicipios;
 }
 
-/**
- * Normalizes state names (some may have encoding issues from QGIS).
- */
 function normalizeStateName(name: string): string {
   const corrections: Record<string, string> = {
-    'Ciudad de MǸxico': 'Ciudad de México',
-    'MǸxico': 'Estado de México',
     'México': 'Estado de México',
-    'Michoacǭn de Ocampo': 'Michoacán de Ocampo',
-    'Nuevo Le\uFFFDn': 'Nuevo León',
-    'San Luis Potos\uFFFD': 'San Luis Potosí',
-    'Yucatǭn': 'Yucatán',
+    'Michoacán de Ocampo': 'Michoacán',
+    'Veracruz de Ignacio de la Llave': 'Veracruz',
   };
   return corrections[name] ?? name;
 }
 
-/**
- * Clears the cache (useful for testing).
- */
 export function clearCache(): void {
-  cachedGeoJSON = null;
-  cachedEstados = null;
+  cachedBundle = null;
+  cachedMunicipios = null;
 }

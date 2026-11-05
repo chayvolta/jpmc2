@@ -5,9 +5,8 @@
 import { useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { useConflictStore } from '@/store/conflictStore';
-import { calcularEstadisticas } from '@/utils/statsUtils';
+import { calcularEstadisticas, truncate } from '@/utils/statsUtils';
 import { getConflictColor } from '@/data/colorScales';
-import { truncate } from '@/utils/statsUtils';
 
 interface CustomTooltipProps {
   active?: boolean;
@@ -78,7 +77,10 @@ export default function Top10Chart() {
             radius={[0, 4, 4, 0]}
             cursor="pointer"
             onClick={(entry) => {
-              const municipio = municipios.find((candidate) => candidate.cvegeo === entry.cvegeo);
+              const item = entry as { cvegeo?: string; payload?: { cvegeo?: string } };
+              const targetCvegeo = item?.payload?.cvegeo ?? item?.cvegeo;
+              if (!targetCvegeo) return;
+              const municipio = municipios.find((candidate) => candidate.cvegeo === targetCvegeo);
               if (municipio) setSelectedMunicipio(municipio);
             }}
           >

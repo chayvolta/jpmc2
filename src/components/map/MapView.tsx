@@ -1,13 +1,31 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { Root } from 'react-dom/client';
-import maplibregl from 'maplibre-gl';
+import * as maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { getMapLibreColorExpression } from '@/data/colorScales';
 import { useConflictStore } from '@/store/conflictStore';
 import type { GeoJSONFeature } from '@/services/geojsonService';
 import type { GeoJSONProperties, MunicipioData } from '@/types/conflicto';
 import MunicipalityPopup from './MunicipalityPopup';
+
+const WORKER_URL = '/maplibre-gl-worker.js';
+if (maplibregl.getWorkerUrl() !== WORKER_URL) {
+  maplibregl.setWorkerUrl(WORKER_URL);
+  const dispatcher = (
+    maplibregl as unknown as {
+      getGlobalDispatcher?: () => {
+        workerPool?: {
+          isStarted?: () => boolean;
+          restart?: () => Promise<void>;
+        };
+      };
+    }
+  ).getGlobalDispatcher?.();
+  if (dispatcher?.workerPool?.isStarted?.()) {
+    void dispatcher.workerPool.restart?.();
+  }
+}
 
 const MAP_SOURCE_ID = 'municipios-source';
 const FILL_LAYER_ID = 'municipios-fill';
@@ -60,9 +78,14 @@ function getFeatureBounds(feature: GeoJSONFeature): maplibregl.LngLatBounds | nu
 export default function MapView() {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
+  const styleLoadedRef = useRef<boolean>(false);
   const popupRef = useRef<maplibregl.Popup | null>(null);
+  const popupNodeRef = useRef<HTMLDivElement | null>(null);
   const popupRootRef = useRef<Root | null>(null);
   const hoveredIdRef = useRef<string | null>(null);
+  const popupMunicipioIdRef = useRef<string | null>(null);
+  const isPinnedRef = useRef<boolean>(false);
+  const isDraggingRef = useRef<boolean>(false);
 
   const {
     geojson,
@@ -74,17 +97,70 @@ export default function MapView() {
   } = useConflictStore();
 
   const removePopup = useCallback(() => {
+    isPinnedRef.current = false;
+    popupMunicipioIdRef.current = null;
     popupRef.current?.remove();
-    popupRef.current = null;
-    if (popupRootRef.current) {
-      const popupRoot = popupRootRef.current;
-      popupRootRef.current = null;
-      queueMicrotask(() => popupRoot.unmount());
-    }
   }, []);
+
+  const showMunicipalityPopup = useCallback(
+    (
+      map: maplibregl.Map,
+      municipality: MunicipioData,
+      lngLat: maplibregl.LngLatLike,
+      pinned: boolean
+    ) => {
+      if (!popupNodeRef.current) {
+        popupNodeRef.current = document.createElement('div');
+        popupRootRef.current = createRoot(popupNodeRef.current);
+      }
+
+      if (!popupRef.current) {
+        popupRef.current = new maplibregl.Popup({
+          closeButton: false,
+          closeOnClick: false,
+          maxWidth: '440px',
+          offset: 16,
+        }).setDOMContent(popupNodeRef.current);
+      }
+
+      isPinnedRef.current = pinned;
+      if (pinned) {
+        popupRef.current.removeClassName('popup-hover-mode');
+      } else {
+        popupRef.current.addClassName('popup-hover-mode');
+      }
+
+      if (popupMunicipioIdRef.current !== municipality.cvegeo) {
+        popupMunicipioIdRef.current = municipality.cvegeo;
+        const state = useConflictStore.getState();
+        const municipalityConflicts = state.conflictos.filter((conflict) =>
+          conflict.cvegeo.includes(municipality.cvegeo)
+        );
+
+        popupRootRef.current?.render(
+          <MunicipalityPopup
+            municipio={municipality}
+            conflictos={municipalityConflicts}
+            onClose={() => {
+              removePopup();
+              setSelectedMunicipio(null);
+            }}
+          />
+        );
+      }
+
+      popupRef.current.setLngLat(lngLat);
+      if (!popupRef.current.isOpen()) {
+        popupRef.current.addTo(map);
+      }
+    },
+    [removePopup, setSelectedMunicipio]
+  );
 
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return;
+
+    styleLoadedRef.current = false;
 
     const map = new maplibregl.Map({
       container: mapContainerRef.current,
@@ -110,34 +186,63 @@ export default function MapView() {
     map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-right');
     mapRef.current = map;
 
-    const resizeObserver = new ResizeObserver(() => map.resize());
-    resizeObserver.observe(mapContainerRef.current);
-
-    return () => {
-      resizeObserver.disconnect();
-      removePopup();
-      map.remove();
-      mapRef.current = null;
+    const markStyleLoaded = () => {
+      styleLoadedRef.current = true;
     };
-  }, [removePopup]);
+    map.on('style.load', markStyleLoaded);
+    map.on('load', markStyleLoaded);
 
-  const setupEventHandlers = useCallback((map: maplibregl.Map) => {
-    map.on('mousemove', FILL_LAYER_ID, (event) => {
-      const feature = event.features?.[0];
-      const cvegeo = feature?.properties?.CVEGEO as string | undefined;
-      if (!cvegeo) return;
+    map.on('dragstart', () => {
+      isDraggingRef.current = true;
+      map.getCanvas().style.cursor = 'grabbing';
+      if (!isPinnedRef.current && popupRef.current?.isOpen()) {
+        popupRef.current.remove();
+        popupMunicipioIdRef.current = null;
+      }
+    });
 
-      if (hoveredIdRef.current && hoveredIdRef.current !== cvegeo) {
-        map.setFeatureState(
-          { source: MAP_SOURCE_ID, id: hoveredIdRef.current },
-          { hover: false }
-        );
+    map.on('dragend', () => {
+      isDraggingRef.current = false;
+      map.getCanvas().style.cursor = hoveredIdRef.current ? 'pointer' : '';
+    });
+
+    map.on('mousemove', FILL_LAYER_ID, (event: maplibregl.MapLayerMouseEvent) => {
+      if (isDraggingRef.current || event.originalEvent.buttons !== 0) {
+        return;
       }
 
-      hoveredIdRef.current = cvegeo;
-      map.setFeatureState({ source: MAP_SOURCE_ID, id: cvegeo }, { hover: true });
-      map.getCanvas().style.cursor = 'pointer';
-      setHoveredMunicipio(cvegeo);
+      const feature = event.features?.[0];
+      const properties = feature?.properties as unknown as GeoJSONProperties | undefined;
+      const cvegeo = properties?.CVEGEO;
+      if (!cvegeo || !properties) return;
+
+      const changedMunicipality = hoveredIdRef.current !== cvegeo;
+
+      if (changedMunicipality) {
+        if (hoveredIdRef.current) {
+          map.setFeatureState(
+            { source: MAP_SOURCE_ID, id: hoveredIdRef.current },
+            { hover: false }
+          );
+        }
+
+        hoveredIdRef.current = cvegeo;
+        map.setFeatureState({ source: MAP_SOURCE_ID, id: cvegeo }, { hover: true });
+        map.getCanvas().style.cursor = 'pointer';
+        setHoveredMunicipio(cvegeo);
+      }
+
+      if (!isPinnedRef.current) {
+        if (changedMunicipality || !popupRef.current?.isOpen()) {
+          const state = useConflictStore.getState();
+          const municipality =
+            state.municipios.find((candidate) => candidate.cvegeo === cvegeo) ??
+            municipalityFromProperties(properties);
+          showMunicipalityPopup(map, municipality, event.lngLat, false);
+        } else {
+          popupRef.current.setLngLat(event.lngLat);
+        }
+      }
     });
 
     map.on('mouseleave', FILL_LAYER_ID, () => {
@@ -148,56 +253,65 @@ export default function MapView() {
         );
         hoveredIdRef.current = null;
       }
-      map.getCanvas().style.cursor = '';
+      if (!isDraggingRef.current) {
+        map.getCanvas().style.cursor = '';
+      }
       setHoveredMunicipio(null);
+      if (!isPinnedRef.current) {
+        removePopup();
+      }
     });
 
-    map.on('click', FILL_LAYER_ID, (event) => {
+    map.on('click', FILL_LAYER_ID, (event: maplibregl.MapLayerMouseEvent) => {
       const feature = event.features?.[0];
       if (!feature) return;
 
-      const properties = feature.properties as GeoJSONProperties;
+      const properties = feature.properties as unknown as GeoJSONProperties;
       const state = useConflictStore.getState();
-      const municipality = state.municipios.find(
-        (candidate) => candidate.cvegeo === properties.CVEGEO
-      ) ?? municipalityFromProperties(properties);
-      const municipalityConflicts = state.conflictos.filter((conflict) =>
-        conflict.cvegeo.includes(municipality.cvegeo)
-      );
+      const municipality =
+        state.municipios.find((candidate) => candidate.cvegeo === properties.CVEGEO) ??
+        municipalityFromProperties(properties);
 
       setSelectedMunicipio(municipality);
-      removePopup();
-
-      const popupNode = document.createElement('div');
-      const popupRoot = createRoot(popupNode);
-      popupRoot.render(
-        <MunicipalityPopup
-          municipio={municipality}
-          conflictos={municipalityConflicts}
-          onClose={() => {
-            removePopup();
-            setSelectedMunicipio(null);
-          }}
-        />
-      );
-      popupRootRef.current = popupRoot;
-
-      popupRef.current = new maplibregl.Popup({
-        closeButton: false,
-        maxWidth: '440px',
-        offset: 15,
-      })
-        .setLngLat(event.lngLat)
-        .setDOMContent(popupNode)
-        .addTo(map);
+      showMunicipalityPopup(map, municipality, event.lngLat, true);
     });
-  }, [removePopup, setHoveredMunicipio, setSelectedMunicipio]);
+
+    const resizeObserver = new ResizeObserver(() => map.resize());
+    resizeObserver.observe(mapContainerRef.current);
+
+    return () => {
+      resizeObserver.disconnect();
+      popupRef.current?.remove();
+      popupRef.current = null;
+      popupMunicipioIdRef.current = null;
+      isPinnedRef.current = false;
+      if (popupRootRef.current) {
+        const root = popupRootRef.current;
+        popupRootRef.current = null;
+        popupNodeRef.current = null;
+        queueMicrotask(() => root.unmount());
+      }
+      styleLoadedRef.current = false;
+      map.remove();
+      mapRef.current = null;
+    };
+  }, [removePopup, setHoveredMunicipio, setSelectedMunicipio, showMunicipalityPopup]);
 
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !geojson) return;
 
+    let added = false;
+
     function addLayers() {
+      if (added || !map || !geojson) return;
+      added = true;
+
+      const cleanGeoJSON = {
+        type: 'FeatureCollection' as const,
+        features: geojson.features,
+      };
+
       [LABEL_LAYER_ID, HOVER_LAYER_ID, STROKE_LAYER_ID, FILL_LAYER_ID].forEach((layerId) => {
         if (map.getLayer(layerId)) map.removeLayer(layerId);
       });
@@ -205,7 +319,7 @@ export default function MapView() {
 
       map.addSource(MAP_SOURCE_ID, {
         type: 'geojson',
-        data: geojson as maplibregl.GeoJSONSourceSpecification['data'],
+        data: cleanGeoJSON as maplibregl.GeoJSONSourceSpecification['data'],
         promoteId: 'CVEGEO',
       });
 
@@ -285,17 +399,30 @@ export default function MapView() {
           'text-opacity': ['interpolate', ['linear'], ['zoom'], 6, 0.3, 7, 0.88],
         },
       });
-
-      setupEventHandlers(map);
     }
 
-    if (map.loaded()) addLayers();
-    else map.once('load', addLayers);
-  }, [geojson, setupEventHandlers]);
+    if (styleLoadedRef.current || map.isStyleLoaded()) {
+      addLayers();
+    } else {
+      map.once('style.load', addLayers);
+      map.once('load', addLayers);
+      return () => {
+        map.off('style.load', addLayers);
+        map.off('load', addLayers);
+      };
+    }
+  }, [geojson]);
 
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !selectedMunicipio || !geojson) return;
+    if (!map || !geojson) return;
+
+    if (!selectedMunicipio) {
+      if (isPinnedRef.current) {
+        removePopup();
+      }
+      return;
+    }
 
     const feature = geojson.features.find(
       (candidate) => candidate.properties.CVEGEO === selectedMunicipio.cvegeo
@@ -309,8 +436,12 @@ export default function MapView() {
         maxZoom: 9,
         duration: 1000,
       });
+
+      if (popupMunicipioIdRef.current !== selectedMunicipio.cvegeo || !isPinnedRef.current) {
+        showMunicipalityPopup(map, selectedMunicipio, bounds.getCenter(), true);
+      }
     }
-  }, [geojson, selectedMunicipio]);
+  }, [geojson, removePopup, selectedMunicipio, showMunicipalityPopup]);
 
   const hoveredData = hoveredMunicipio
     ? municipios.find((municipio) => municipio.cvegeo === hoveredMunicipio)

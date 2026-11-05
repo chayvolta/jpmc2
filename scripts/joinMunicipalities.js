@@ -5,16 +5,20 @@ import { fileURLToPath } from 'node:url';
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const rootDirectory = resolve(scriptDirectory, '..');
 const sourceArgument = process.argv[2];
-const toleranceArgument = Number(process.argv[3] ?? 0.0025);
+const toleranceArgument = Number(process.argv[3] ?? 0);
+const defaultSimplePath = resolve(rootDirectory, 'data', 'municipalities_simple.geojson');
+const existingPublicGeoJSONPath = resolve(rootDirectory, 'public', 'data', 'municipios_conflictos.geojson');
 const sourcePath = sourceArgument
   ? resolve(process.cwd(), sourceArgument)
-  : resolve(rootDirectory, 'data', 'municipalities_simple.geojson');
+  : existsSync(defaultSimplePath)
+    ? defaultSimplePath
+    : existingPublicGeoJSONPath;
 const conflictsPath = resolve(rootDirectory, 'public', 'data', 'conflictos_municipales.json');
 const outputPath = resolve(rootDirectory, 'public', 'data', 'municipios_conflictos.geojson');
 
 if (!existsSync(sourcePath)) {
   console.error('No se encontró el GeoJSON municipal.');
-  console.error('Uso: npm run join-municipalities -- <ruta/municipalities_simple.geojson> [tolerancia]');
+  console.error('Uso: npm run join-municipalities -- [ruta/municipalities.geojson] [tolerancia]');
   process.exit(1);
 }
 
@@ -25,12 +29,14 @@ if (!Array.isArray(sourceGeoJSON.features) || !Array.isArray(conflictPayload.rec
   throw new Error('Entradas inválidas: se requieren features municipales y records de conflictos.');
 }
 
-const municipalityKeys = new Set(sourceGeoJSON.features.map((feature) => String(feature.properties?.CVEGEO ?? '')));
+const municipalityKeys = new Set(sourceGeoJSON.features.map((feature) => String(feature.properties?.CVEGEO ?? '').padStart(5, '0')));
 const conflictsByMunicipality = new Map();
 const missingKeys = new Set();
 
 for (const conflict of conflictPayload.records) {
-  for (const cvegeo of conflict.cvegeo) {
+  for (const rawCvegeo of conflict.cvegeo) {
+    const cvegeo = String(rawCvegeo).trim().padStart(5, '0');
+    if (!cvegeo) continue;
     if (!municipalityKeys.has(cvegeo)) {
       missingKeys.add(cvegeo);
       continue;
@@ -86,7 +92,7 @@ function simplifyDouglasPeucker(points, firstIndex, lastIndex, squaredTolerance,
 }
 
 function simplifyRing(ring, tolerance) {
-  if (!Array.isArray(ring) || ring.length <= 5) return ring;
+  if (!tolerance || tolerance <= 0 || !Array.isArray(ring) || ring.length <= 5) return ring;
   const openRing = ring.slice(0, -1);
   const squaredTolerance = tolerance * tolerance;
   const simplified = [openRing[0]];
@@ -98,7 +104,7 @@ function simplifyRing(ring, tolerance) {
 }
 
 function simplifyGeometry(geometry, tolerance) {
-  if (!geometry) return null;
+  if (!geometry || !tolerance || tolerance <= 0) return geometry;
   if (geometry.type === 'Polygon') {
     return { type: 'Polygon', coordinates: geometry.coordinates.map((ring) => simplifyRing(ring, tolerance)) };
   }
@@ -113,9 +119,9 @@ function simplifyGeometry(geometry, tolerance) {
 
 const features = sourceGeoJSON.features.map((feature) => {
   const originalProperties = feature.properties ?? {};
-  const cvegeo = String(originalProperties.CVEGEO ?? '');
+  const cvegeo = String(originalProperties.CVEGEO ?? '').padStart(5, '0');
   const conflicts = conflictsByMunicipality.get(cvegeo) ?? [];
-  const years = [...new Set(conflicts.map((conflict) => conflict.year))].sort((left, right) => left - right);
+  const years = [...new Set(conflicts.map((conflict) => conflict.year).filter((y) => Number.isFinite(y) && y > 0))].sort((left, right) => left - right);
 
   return {
     type: 'Feature',
@@ -126,8 +132,14 @@ const features = sourceGeoJSON.features.map((feature) => {
       NOMGEO: originalProperties.NOMGEO ?? '',
       NOMMUN: originalProperties.NOMMUN ?? '',
       total_conflictos: conflicts.length,
-      conflictos_validados: conflicts.filter((conflict) => String(conflict.auditStatus).startsWith('VALIDADO')).length,
-      conflictos_pendientes: conflicts.filter((conflict) => String(conflict.auditStatus).includes('PENDIENTE')).length,
+      conflictos_validados: conflicts.filter((conflict) => {
+        const status = String(conflict.auditStatus ?? '');
+        return status.startsWith('VALIDADO') || status === 'CLAVE_ASIGNADA_MUNICIPIO_ORIGINAL';
+      }).length,
+      conflictos_pendientes: conflicts.filter((conflict) => {
+        const status = String(conflict.auditStatus ?? '');
+        return status.includes('PENDIENTE') || status.includes('REVISAR');
+      }).length,
       primer_anio: years[0] ?? null,
       ultimo_anio: years.at(-1) ?? null,
     },
@@ -138,15 +150,15 @@ const features = sourceGeoJSON.features.map((feature) => {
 const output = {
   type: 'FeatureCollection',
   metadata: {
-    generatedAt: '2026-08-25',
-    source: basename(sourcePath),
-    conflictsSource: basename(conflictsPath),
+    generatedAt: new Date().toISOString().slice(0, 10),
+    source: sourceGeoJSON.metadata?.source ?? basename(sourcePath),
+    conflictsSource: conflictPayload.metadata?.source ?? basename(conflictsPath),
     joinKey: 'CVEGEO',
     municipalities: features.length,
     municipalitiesWithConflicts: conflictsByMunicipality.size,
     uniqueConflicts: conflictPayload.metadata.uniqueConflicts,
     municipalAssignments: conflictPayload.metadata.municipalAssignments,
-    simplificationToleranceDegrees: toleranceArgument,
+    simplificationToleranceDegrees: toleranceArgument || (sourceGeoJSON.metadata?.simplificationToleranceDegrees ?? 0.0025),
   },
   features,
 };

@@ -44,6 +44,6 @@ export function getMapLibreHighlightExpression(hoveredId: string | null): unknow
     'case',
     ['==', ['get', 'CVEGEO'], hoveredId],
     '#ffffff',
-    getMapLibreColorExpression() as string,
+    getMapLibreColorExpression(),
   ];
 }

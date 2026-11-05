@@ -37,6 +37,9 @@ const initialFilters: FilterState = {
   searchText: '',
 };
 
+const isDesktopViewport =
+  typeof window !== 'undefined' ? window.innerWidth >= 768 : true;
+
 export const useConflictStore = create<ConflictStore>((set) => ({
   geojson: null,
   municipios: [],
@@ -46,7 +49,7 @@ export const useConflictStore = create<ConflictStore>((set) => ({
   error: null,
   hoveredMunicipio: null,
   selectedMunicipio: null,
-  sidebarOpen: true,
+  sidebarOpen: isDesktopViewport,
   filters: initialFilters,
   setGeoJSON: (geojson) => set({ geojson }),
   setMunicipios: (municipios) => set({ municipios }),

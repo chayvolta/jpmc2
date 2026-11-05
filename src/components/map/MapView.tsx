@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useRef } from 'react';
-import { createRoot } from 'react-dom/client';
-import type { Root } from 'react-dom/client';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import * as maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
+import { Search } from 'lucide-react';
 import { getMapLibreColorExpression } from '@/data/colorScales';
 import { useConflictStore } from '@/store/conflictStore';
 import type { GeoJSONFeature } from '@/services/geojsonService';
@@ -77,85 +76,50 @@ function getFeatureBounds(feature: GeoJSONFeature): maplibregl.LngLatBounds | nu
 
 export default function MapView() {
   const mapContainerRef = useRef<HTMLDivElement>(null);
+  const hoverCardRef = useRef<HTMLDivElement>(null);
+  const cursorPointRef = useRef<{ x: number; y: number }>({ x: 24, y: 24 });
   const mapRef = useRef<maplibregl.Map | null>(null);
   const styleLoadedRef = useRef<boolean>(false);
-  const popupRef = useRef<maplibregl.Popup | null>(null);
-  const popupNodeRef = useRef<HTMLDivElement | null>(null);
-  const popupRootRef = useRef<Root | null>(null);
   const hoveredIdRef = useRef<string | null>(null);
-  const popupMunicipioIdRef = useRef<string | null>(null);
-  const isPinnedRef = useRef<boolean>(false);
+  const selectedIdRef = useRef<string | null>(null);
   const isDraggingRef = useRef<boolean>(false);
 
   const {
     geojson,
     municipios,
+    conflictos,
     hoveredMunicipio,
     selectedMunicipio,
+    sidebarOpen,
     setHoveredMunicipio,
     setSelectedMunicipio,
+    setSidebarOpen,
   } = useConflictStore();
 
-  const removePopup = useCallback(() => {
-    isPinnedRef.current = false;
-    popupMunicipioIdRef.current = null;
-    popupRef.current?.remove();
+  const updateHoverCardPosition = useCallback((pointX: number, pointY: number) => {
+    cursorPointRef.current = { x: pointX, y: pointY };
+    const container = mapContainerRef.current;
+    const card = hoverCardRef.current;
+    if (!container || !card) return;
+
+    const containerWidth = container.clientWidth;
+    const containerHeight = container.clientHeight;
+    const cardWidth = card.offsetWidth || 410;
+    const cardHeight = card.offsetHeight || 340;
+    const margin = 12;
+    const cursorGap = 20;
+
+    let left = pointX + cursorGap;
+    if (left + cardWidth > containerWidth - margin) {
+      left = pointX - cardWidth - cursorGap;
+    }
+    left = Math.max(margin, Math.min(left, containerWidth - cardWidth - margin));
+
+    let top = pointY - cardHeight / 2;
+    top = Math.max(margin, Math.min(top, containerHeight - cardHeight - margin));
+
+    card.style.transform = `translate3d(${Math.round(left)}px, ${Math.round(top)}px, 0)`;
   }, []);
-
-  const showMunicipalityPopup = useCallback(
-    (
-      map: maplibregl.Map,
-      municipality: MunicipioData,
-      lngLat: maplibregl.LngLatLike,
-      pinned: boolean
-    ) => {
-      if (!popupNodeRef.current) {
-        popupNodeRef.current = document.createElement('div');
-        popupRootRef.current = createRoot(popupNodeRef.current);
-      }
-
-      if (!popupRef.current) {
-        popupRef.current = new maplibregl.Popup({
-          closeButton: false,
-          closeOnClick: false,
-          maxWidth: '440px',
-          offset: 16,
-        }).setDOMContent(popupNodeRef.current);
-      }
-
-      isPinnedRef.current = pinned;
-      if (pinned) {
-        popupRef.current.removeClassName('popup-hover-mode');
-      } else {
-        popupRef.current.addClassName('popup-hover-mode');
-      }
-
-      if (popupMunicipioIdRef.current !== municipality.cvegeo) {
-        popupMunicipioIdRef.current = municipality.cvegeo;
-        const state = useConflictStore.getState();
-        const municipalityConflicts = state.conflictos.filter((conflict) =>
-          conflict.cvegeo.includes(municipality.cvegeo)
-        );
-
-        popupRootRef.current?.render(
-          <MunicipalityPopup
-            municipio={municipality}
-            conflictos={municipalityConflicts}
-            onClose={() => {
-              removePopup();
-              setSelectedMunicipio(null);
-            }}
-          />
-        );
-      }
-
-      popupRef.current.setLngLat(lngLat);
-      if (!popupRef.current.isOpen()) {
-        popupRef.current.addTo(map);
-      }
-    },
-    [removePopup, setSelectedMunicipio]
-  );
 
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return;
@@ -177,7 +141,7 @@ export default function MapView() {
         ],
       },
       bounds: MEXICO_BOUNDS,
-      fitBoundsOptions: { padding: 40 },
+      fitBoundsOptions: { padding: 32 },
       attributionControl: false,
       logoPosition: 'bottom-left',
     });
@@ -195,10 +159,16 @@ export default function MapView() {
     map.on('dragstart', () => {
       isDraggingRef.current = true;
       map.getCanvas().style.cursor = 'grabbing';
-      if (!isPinnedRef.current && popupRef.current?.isOpen()) {
-        popupRef.current.remove();
-        popupMunicipioIdRef.current = null;
+      if (hoveredIdRef.current) {
+        if (map.getSource(MAP_SOURCE_ID)) {
+          map.setFeatureState(
+            { source: MAP_SOURCE_ID, id: hoveredIdRef.current },
+            { hover: false }
+          );
+        }
+        hoveredIdRef.current = null;
       }
+      setHoveredMunicipio(null);
     });
 
     map.on('dragend', () => {
@@ -211,15 +181,20 @@ export default function MapView() {
         return;
       }
 
+      // Skip hover state on touch-only viewports so taps go straight to click
+      if (window.innerWidth < 768) {
+        return;
+      }
+
       const feature = event.features?.[0];
       const properties = feature?.properties as unknown as GeoJSONProperties | undefined;
       const cvegeo = properties?.CVEGEO;
       if (!cvegeo || !properties) return;
 
-      const changedMunicipality = hoveredIdRef.current !== cvegeo;
+      updateHoverCardPosition(event.point.x, event.point.y);
 
-      if (changedMunicipality) {
-        if (hoveredIdRef.current) {
+      if (hoveredIdRef.current !== cvegeo) {
+        if (hoveredIdRef.current && map.getSource(MAP_SOURCE_ID)) {
           map.setFeatureState(
             { source: MAP_SOURCE_ID, id: hoveredIdRef.current },
             { hover: false }
@@ -231,22 +206,10 @@ export default function MapView() {
         map.getCanvas().style.cursor = 'pointer';
         setHoveredMunicipio(cvegeo);
       }
-
-      if (!isPinnedRef.current) {
-        if (changedMunicipality || !popupRef.current?.isOpen()) {
-          const state = useConflictStore.getState();
-          const municipality =
-            state.municipios.find((candidate) => candidate.cvegeo === cvegeo) ??
-            municipalityFromProperties(properties);
-          showMunicipalityPopup(map, municipality, event.lngLat, false);
-        } else {
-          popupRef.current.setLngLat(event.lngLat);
-        }
-      }
     });
 
     map.on('mouseleave', FILL_LAYER_ID, () => {
-      if (hoveredIdRef.current) {
+      if (hoveredIdRef.current && map.getSource(MAP_SOURCE_ID)) {
         map.setFeatureState(
           { source: MAP_SOURCE_ID, id: hoveredIdRef.current },
           { hover: false }
@@ -257,9 +220,6 @@ export default function MapView() {
         map.getCanvas().style.cursor = '';
       }
       setHoveredMunicipio(null);
-      if (!isPinnedRef.current) {
-        removePopup();
-      }
     });
 
     map.on('click', FILL_LAYER_ID, (event: maplibregl.MapLayerMouseEvent) => {
@@ -273,7 +233,6 @@ export default function MapView() {
         municipalityFromProperties(properties);
 
       setSelectedMunicipio(municipality);
-      showMunicipalityPopup(map, municipality, event.lngLat, true);
     });
 
     const resizeObserver = new ResizeObserver(() => map.resize());
@@ -281,21 +240,11 @@ export default function MapView() {
 
     return () => {
       resizeObserver.disconnect();
-      popupRef.current?.remove();
-      popupRef.current = null;
-      popupMunicipioIdRef.current = null;
-      isPinnedRef.current = false;
-      if (popupRootRef.current) {
-        const root = popupRootRef.current;
-        popupRootRef.current = null;
-        popupNodeRef.current = null;
-        queueMicrotask(() => root.unmount());
-      }
       styleLoadedRef.current = false;
       map.remove();
       mapRef.current = null;
     };
-  }, [removePopup, setHoveredMunicipio, setSelectedMunicipio, showMunicipalityPopup]);
+  }, [setHoveredMunicipio, setSelectedMunicipio, updateHoverCardPosition]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -331,6 +280,8 @@ export default function MapView() {
           'fill-color': getMapLibreColorExpression() as maplibregl.ExpressionSpecification,
           'fill-opacity': [
             'case',
+            ['boolean', ['feature-state', 'selected'], false],
+            0.98,
             ['boolean', ['feature-state', 'hover'], false],
             0.96,
             ['==', ['get', 'total_conflictos'], 0],
@@ -348,6 +299,8 @@ export default function MapView() {
           'fill-color': '#ffffff',
           'fill-opacity': [
             'case',
+            ['boolean', ['feature-state', 'selected'], false],
+            0.16,
             ['boolean', ['feature-state', 'hover'], false],
             0.12,
             0,
@@ -362,6 +315,8 @@ export default function MapView() {
         paint: {
           'line-color': [
             'case',
+            ['boolean', ['feature-state', 'selected'], false],
+            '#f59e0b',
             ['boolean', ['feature-state', 'hover'], false],
             '#ffffff',
             '#334155',
@@ -371,11 +326,25 @@ export default function MapView() {
             ['linear'],
             ['zoom'],
             3,
-            ['case', ['boolean', ['feature-state', 'hover'], false], 1.8, 0.15],
+            [
+              'case',
+              ['boolean', ['feature-state', 'selected'], false],
+              2.4,
+              ['boolean', ['feature-state', 'hover'], false],
+              1.8,
+              0.15,
+            ],
             8,
-            ['case', ['boolean', ['feature-state', 'hover'], false], 1.8, 0.7],
+            [
+              'case',
+              ['boolean', ['feature-state', 'selected'], false],
+              2.6,
+              ['boolean', ['feature-state', 'hover'], false],
+              1.8,
+              0.7,
+            ],
           ],
-          'line-opacity': 0.78,
+          'line-opacity': 0.85,
         },
       });
 
@@ -417,11 +386,24 @@ export default function MapView() {
     const map = mapRef.current;
     if (!map || !geojson) return;
 
+    if (selectedIdRef.current && map.getSource(MAP_SOURCE_ID)) {
+      map.setFeatureState(
+        { source: MAP_SOURCE_ID, id: selectedIdRef.current },
+        { selected: false }
+      );
+      selectedIdRef.current = null;
+    }
+
     if (!selectedMunicipio) {
-      if (isPinnedRef.current) {
-        removePopup();
-      }
       return;
+    }
+
+    selectedIdRef.current = selectedMunicipio.cvegeo;
+    if (map.getSource(MAP_SOURCE_ID)) {
+      map.setFeatureState(
+        { source: MAP_SOURCE_ID, id: selectedMunicipio.cvegeo },
+        { selected: true }
+      );
     }
 
     const feature = geojson.features.find(
@@ -431,54 +413,131 @@ export default function MapView() {
 
     const bounds = getFeatureBounds(feature);
     if (bounds) {
+      const container = mapContainerRef.current;
+      const width = container?.clientWidth ?? window.innerWidth;
+      const height = container?.clientHeight ?? window.innerHeight;
+      const isMobile = width < 640;
+
+      const padding = isMobile
+        ? {
+            top: 56,
+            bottom: Math.min(Math.round(height * 0.56), 420),
+            left: 24,
+            right: 24,
+          }
+        : {
+            top: 72,
+            bottom: 72,
+            left: Math.min(450, Math.round(width * 0.42)),
+            right: 96,
+          };
+
       map.fitBounds(bounds, {
-        padding: 100,
+        padding,
         maxZoom: 9,
-        duration: 1000,
+        duration: 900,
       });
-
-      if (popupMunicipioIdRef.current !== selectedMunicipio.cvegeo || !isPinnedRef.current) {
-        showMunicipalityPopup(map, selectedMunicipio, bounds.getCenter(), true);
-      }
     }
-  }, [geojson, removePopup, selectedMunicipio, showMunicipalityPopup]);
+  }, [geojson, selectedMunicipio]);
 
-  const hoveredData = hoveredMunicipio
-    ? municipios.find((municipio) => municipio.cvegeo === hoveredMunicipio)
-    : null;
+  const hoveredData = useMemo(
+    () =>
+      hoveredMunicipio
+        ? municipios.find((municipio) => municipio.cvegeo === hoveredMunicipio) ?? null
+        : null,
+    [hoveredMunicipio, municipios]
+  );
+
+  const hoveredConflicts = useMemo(
+    () =>
+      hoveredData
+        ? conflictos.filter((conflict) => conflict.cvegeo.includes(hoveredData.cvegeo))
+        : [],
+    [conflictos, hoveredData]
+  );
+
+  const selectedConflicts = useMemo(
+    () =>
+      selectedMunicipio
+        ? conflictos.filter((conflict) => conflict.cvegeo.includes(selectedMunicipio.cvegeo))
+        : [],
+    [conflictos, selectedMunicipio]
+  );
+
+  // Re-clamp hover card position whenever hovered municipality changes (since height may change)
+  useEffect(() => {
+    if (hoveredData && !selectedMunicipio) {
+      updateHoverCardPosition(cursorPointRef.current.x, cursorPointRef.current.y);
+    }
+  }, [hoveredData, selectedMunicipio, updateHoverCardPosition]);
 
   return (
-    <div className="relative w-full h-full">
+    <div className="relative w-full h-full overflow-hidden">
       <div
         ref={mapContainerRef}
         id="map-container"
         style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
       />
 
-      {hoveredData && (
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 pointer-events-none z-20 animate-fade-in">
-          <div className="glass rounded-lg px-4 py-2 flex items-center gap-3">
-            <div>
-              <p className="text-sm font-semibold text-slate-200">{hoveredData.nombre}</p>
-              <p className="text-xs text-slate-500">{hoveredData.entidad} · {hoveredData.cvegeo}</p>
-            </div>
-            <span className="text-xs text-slate-600">|</span>
-            <span className="text-sm font-bold text-amber-400">
-              {hoveredData.totalConflictos.toLocaleString('es-MX')}
-            </span>
-            <span className="text-xs text-slate-400">conflictos</span>
-          </div>
+      {/* Mobile quick button to open Sidebar (Search & Stats) */}
+      {!sidebarOpen && (
+        <button
+          type="button"
+          onClick={() => setSidebarOpen(true)}
+          className="md:hidden absolute top-3 left-3 z-20 glass rounded-xl px-3.5 py-2 text-xs font-semibold text-slate-200 hover:text-white shadow-lg flex items-center gap-2 border border-white/15 active:scale-95 transition-all"
+        >
+          <Search size={14} className="text-ocean-400" />
+          <span>Buscar / Datos</span>
+        </button>
+      )}
+
+      {/* Desktop Hover Popup Card — clamped strictly inside map container */}
+      {hoveredData && !selectedMunicipio && (
+        <div
+          ref={hoverCardRef}
+          className="hidden md:flex fixed-hover-card absolute top-0 left-0 z-20 pointer-events-none max-h-[calc(100%-24px)] rounded-xl shadow-2xl border border-white/15"
+          style={{
+            willChange: 'transform',
+            transform: `translate3d(${cursorPointRef.current.x + 20}px, 16px, 0)`,
+          }}
+        >
+          <MunicipalityPopup
+            municipio={hoveredData}
+            conflictos={hoveredConflicts}
+            onClose={() => {}}
+            isHoverPreview
+          />
         </div>
       )}
 
+      {/* Clicked / Selected Municipality Popup Card — guaranteed 100% visible on Desktop & Mobile */}
+      {selectedMunicipio && (
+        <div
+          className="
+            absolute z-30 flex flex-col
+            inset-x-2.5 bottom-2.5 max-h-[65dvh]
+            sm:inset-auto sm:top-4 sm:left-4 sm:max-h-[calc(100%-32px)]
+            rounded-xl shadow-2xl border border-white/15 animate-fade-in
+          "
+        >
+          <MunicipalityPopup
+            municipio={selectedMunicipio}
+            conflictos={selectedConflicts}
+            onClose={() => setSelectedMunicipio(null)}
+          />
+        </div>
+      )}
+
+      {/* Reset Mexico View button */}
       <button
         id="btn-reset-view"
         onClick={() => {
-          mapRef.current?.fitBounds(MEXICO_BOUNDS, { padding: 40, duration: 1000 });
+          mapRef.current?.fitBounds(MEXICO_BOUNDS, { padding: 32, duration: 900 });
           setSelectedMunicipio(null);
-          removePopup();
         }}
-        className="absolute bottom-12 right-4 z-10 glass rounded-lg px-3 py-2 text-xs text-slate-300 hover:text-white hover:border-ocean-500 transition-all duration-200 flex items-center gap-1.5"
+        className={`absolute right-3 sm:right-4 z-10 glass rounded-lg px-3 py-2 text-xs text-slate-300 hover:text-white hover:border-ocean-500 transition-all duration-200 flex items-center gap-1.5 ${
+          selectedMunicipio ? 'bottom-[calc(65dvh+16px)] sm:bottom-12' : 'bottom-12'
+        }`}
         title="Restablecer vista de México"
       >
         <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -487,12 +546,30 @@ export default function MapView() {
         México
       </button>
 
-      <div id="map-logos-panel" className="absolute top-4 right-14 z-10 pointer-events-none flex flex-col items-end gap-2">
-        <div className="rounded-xl shadow-card border border-white/10 px-4 py-2" style={{ background: 'rgba(255, 255, 255, 0.97)', backdropFilter: 'blur(12px)' }}>
-          <img src="/logos/logo-igual.png" alt="IGUAL Consultores" className="block h-7 w-auto object-contain" />
+      {/* Logos panel — scaled for mobile & desktop */}
+      <div
+        id="map-logos-panel"
+        className="absolute top-3 right-12 sm:top-4 sm:right-14 z-10 pointer-events-none flex flex-col items-end gap-1.5 sm:gap-2"
+      >
+        <div
+          className="rounded-lg sm:rounded-xl shadow-card border border-white/10 px-2.5 py-1 sm:px-4 sm:py-2"
+          style={{ background: 'rgba(255, 255, 255, 0.97)', backdropFilter: 'blur(12px)' }}
+        >
+          <img
+            src="/logos/logo-igual.png"
+            alt="IGUAL Consultores"
+            className="block h-4 sm:h-6 md:h-7 w-auto object-contain"
+          />
         </div>
-        <div className="rounded-xl overflow-hidden shadow-card border border-white/10" style={{ background: 'rgba(27, 45, 91, 0.95)', backdropFilter: 'blur(12px)' }}>
-          <img src="/logos/logo-ungc.png" alt="UN Global Compact — 2026 Participant" className="block h-[110px] w-auto max-w-[440px] object-contain" />
+        <div
+          className="rounded-lg sm:rounded-xl overflow-hidden shadow-card border border-white/10"
+          style={{ background: 'rgba(27, 45, 91, 0.95)', backdropFilter: 'blur(12px)' }}
+        >
+          <img
+            src="/logos/logo-ungc.png"
+            alt="UN Global Compact — 2026 Participant"
+            className="block h-11 sm:h-20 md:h-[110px] w-auto max-w-[180px] sm:max-w-[320px] md:max-w-[440px] object-contain"
+          />
         </div>
       </div>
     </div>

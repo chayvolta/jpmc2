@@ -12,7 +12,7 @@ import { useConflictStore } from '@/store/conflictStore';
 
 export default function Dashboard() {
   const { error } = useMunicipalData();
-  const { isLoading } = useConflictStore();
+  const { isLoading, selectedMunicipio } = useConflictStore();
 
   // Set page title
   useEffect(() => {
@@ -73,9 +73,11 @@ export default function Dashboard() {
           <MapView />
 
           {/* Legend overlay */}
-          <div className="absolute bottom-10 left-4 z-10">
-            <MapLegend />
-          </div>
+          {!selectedMunicipio && (
+            <div className="absolute bottom-10 left-3 sm:left-4 z-10">
+              <MapLegend />
+            </div>
+          )}
         </main>
       </div>
     </div>

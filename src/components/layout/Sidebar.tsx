@@ -7,7 +7,7 @@ import StatsOverview from '@/components/stats/StatsOverview';
 import Top10Chart from '@/components/stats/Top10Chart';
 import DistributionChart from '@/components/stats/DistributionChart';
 import MunicipalitySearch from '@/components/filters/MunicipalitySearch';
-import { BarChart2, Search, Layers, ChevronDown, ChevronUp } from 'lucide-react';
+import { BarChart2, Search, Layers, ChevronDown, ChevronUp, X } from 'lucide-react';
 import { useState } from 'react';
 
 interface SectionProps {
@@ -44,69 +44,89 @@ function Section({ title, icon, children, defaultOpen = true, id }: SectionProps
 }
 
 export default function Sidebar() {
-  const { sidebarOpen, isLoading } = useConflictStore();
+  const { sidebarOpen, setSidebarOpen, isLoading } = useConflictStore();
 
   return (
-    <aside
-      className={`flex-shrink-0 h-full bg-surface-700 border-r border-white/8 flex flex-col transition-all duration-300 ease-in-out overflow-hidden ${
-        sidebarOpen ? 'w-[340px]' : 'w-0'
-      }`}
-      id="main-sidebar"
-    >
-      <div className="w-[340px] h-full flex flex-col overflow-hidden">
-        {/* Sidebar header */}
-        <div className="px-4 py-3 border-b border-white/8 flex items-center gap-2 bg-surface-800/50">
-          <Layers size={14} className="text-ocean-400" />
-          <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">
-            Panel de análisis
-          </span>
-        </div>
+    <>
+      {/* Mobile backdrop */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 top-[60px] bg-black/60 backdrop-blur-xs z-20 md:hidden animate-fade-in"
+          onClick={() => setSidebarOpen(false)}
+          aria-hidden="true"
+        />
+      )}
 
-        {/* Scrollable content */}
-        <div className="flex-1 overflow-y-auto sidebar-scroll">
-          {isLoading ? (
-            <div className="flex flex-col items-center justify-center h-64 gap-3">
-              <div className="w-8 h-8 border-2 border-ocean-500 border-t-transparent rounded-full animate-spin" />
-              <p className="text-xs text-slate-500">Cargando datos...</p>
+      <aside
+        className={`fixed md:relative top-[60px] md:top-0 bottom-0 left-0 z-30 md:z-auto flex-shrink-0 h-[calc(100%-60px)] md:h-full bg-surface-700 border-r border-white/8 flex flex-col transition-all duration-300 ease-in-out overflow-hidden shadow-2xl md:shadow-none ${
+          sidebarOpen ? 'w-[min(340px,88vw)] md:w-[340px]' : 'w-0 border-r-0'
+        }`}
+        id="main-sidebar"
+      >
+        <div className="w-[min(340px,88vw)] md:w-[340px] h-full flex flex-col overflow-hidden">
+          {/* Sidebar header */}
+          <div className="px-4 py-3 border-b border-white/8 flex items-center justify-between gap-2 bg-surface-800/50">
+            <div className="flex items-center gap-2">
+              <Layers size={14} className="text-ocean-400" />
+              <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">
+                Panel de análisis
+              </span>
             </div>
-          ) : (
-            <>
-              {/* KPIs */}
-              <Section id="section-kpis" title="Indicadores" icon={<BarChart2 size={13} />}>
-                <StatsOverview />
-              </Section>
+            <button
+              onClick={() => setSidebarOpen(false)}
+              className="md:hidden p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
+              aria-label="Cerrar panel"
+            >
+              <X size={16} />
+            </button>
+          </div>
 
-              {/* Municipality search */}
-              <Section id="section-busqueda" title="Buscar municipio" icon={<Search size={13} />}>
-                <MunicipalitySearch />
-              </Section>
+          {/* Scrollable content */}
+          <div className="flex-1 overflow-y-auto sidebar-scroll">
+            {isLoading ? (
+              <div className="flex flex-col items-center justify-center h-64 gap-3">
+                <div className="w-8 h-8 border-2 border-ocean-500 border-t-transparent rounded-full animate-spin" />
+                <p className="text-xs text-slate-500">Cargando datos...</p>
+              </div>
+            ) : (
+              <>
+                {/* KPIs */}
+                <Section id="section-kpis" title="Indicadores" icon={<BarChart2 size={13} />}>
+                  <StatsOverview />
+                </Section>
 
-              {/* Top 10 */}
-              <Section id="section-top10" title="Top 10 municipios" icon={<BarChart2 size={13} />}>
-                <p className="text-xs text-slate-500 mb-3">
-                  Municipios con mayor número de conflictos
-                </p>
-                <Top10Chart />
-              </Section>
+                {/* Municipality search */}
+                <Section id="section-busqueda" title="Buscar municipio" icon={<Search size={13} />}>
+                  <MunicipalitySearch />
+                </Section>
 
-              {/* Distribution */}
-              <Section id="section-distribucion" title="Distribución" icon={<BarChart2 size={13} />} defaultOpen={false}>
-                <p className="text-xs text-slate-500 mb-2">
-                  Municipios afectados por rango
-                </p>
-                <DistributionChart />
-              </Section>
-            </>
-          )}
+                {/* Top 10 */}
+                <Section id="section-top10" title="Top 10 municipios" icon={<BarChart2 size={13} />}>
+                  <p className="text-xs text-slate-500 mb-3">
+                    Municipios con mayor número de conflictos
+                  </p>
+                  <Top10Chart />
+                </Section>
+
+                {/* Distribution */}
+                <Section id="section-distribucion" title="Distribución" icon={<BarChart2 size={13} />} defaultOpen={false}>
+                  <p className="text-xs text-slate-500 mb-2">
+                    Municipios afectados por rango
+                  </p>
+                  <DistributionChart />
+                </Section>
+              </>
+            )}
+          </div>
+
+          {/* Footer */}
+          <div className="px-4 py-3 border-t border-white/8 bg-surface-800/50">
+            <p className="text-xs text-slate-600 text-center">
+              Fuente: IGUAL · Registros 2017–2026 y correcciones históricas
+            </p>
+          </div>
         </div>
-
-        {/* Footer */}
-        <div className="px-4 py-3 border-t border-white/8 bg-surface-800/50">
-          <p className="text-xs text-slate-600 text-center">
-            Fuente: IGUAL · Registros 2017–2026 y correcciones históricas
-          </p>
-        </div>
-      </div>
-    </aside>
+      </aside>
+    </>
   );
 }

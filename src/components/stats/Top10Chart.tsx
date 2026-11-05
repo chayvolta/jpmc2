@@ -27,7 +27,7 @@ function CustomTooltip({ active, payload }: CustomTooltipProps) {
 }
 
 export default function Top10Chart() {
-  const { municipios, conflictos, setSelectedMunicipio } = useConflictStore();
+  const { municipios, conflictos, setSelectedMunicipio, setSidebarOpen } = useConflictStore();
 
   const data = useMemo(() => {
     const stats = calcularEstadisticas(municipios, conflictos.length);
@@ -81,7 +81,12 @@ export default function Top10Chart() {
               const targetCvegeo = item?.payload?.cvegeo ?? item?.cvegeo;
               if (!targetCvegeo) return;
               const municipio = municipios.find((candidate) => candidate.cvegeo === targetCvegeo);
-              if (municipio) setSelectedMunicipio(municipio);
+              if (municipio) {
+                setSelectedMunicipio(municipio);
+                if (window.innerWidth < 768) {
+                  setSidebarOpen(false);
+                }
+              }
             }}
           >
             {data.map((entry, index) => (

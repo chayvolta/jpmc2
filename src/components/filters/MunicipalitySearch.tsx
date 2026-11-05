@@ -5,7 +5,7 @@ import { useConflictStore } from '@/store/conflictStore';
 
 export default function MunicipalitySearch() {
   const [search, setSearch] = useState('');
-  const { municipios, selectedMunicipio, setSelectedMunicipio } = useConflictStore();
+  const { municipios, selectedMunicipio, setSelectedMunicipio, setSidebarOpen } = useConflictStore();
 
   const results = useMemo(() => {
     const query = search.trim().toLocaleLowerCase('es-MX');
@@ -60,7 +60,13 @@ export default function MunicipalitySearch() {
               <button
                 key={municipio.cvegeo}
                 id={`municipio-btn-${municipio.cvegeo}`}
-                onClick={() => setSelectedMunicipio(isSelected ? null : municipio)}
+                onClick={() => {
+                  const nextSelection = isSelected ? null : municipio;
+                  setSelectedMunicipio(nextSelection);
+                  if (nextSelection && window.innerWidth < 768) {
+                    setSidebarOpen(false);
+                  }
+                }}
                 className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left transition-all duration-150 group ${
                   isSelected
                     ? 'bg-white/12 border border-white/16'
